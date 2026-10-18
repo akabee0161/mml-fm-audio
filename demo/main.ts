@@ -11,6 +11,11 @@ declare global {
   }
 }
 
+/** Safari 16.4+ の Audio Session API。マナーモードでも鳴らすために使う */
+interface NavigatorWithAudioSession extends Navigator {
+  audioSession?: { type: string };
+}
+
 const OCTAVES = 2;
 
 function byId<T extends HTMLElement>(id: string): T {
@@ -49,7 +54,7 @@ function exposeDebug(analyser: AnalyserNode): void {
   };
 }
 
-function setup(engine: FmEngine): void {
+function setup(engine: FmEngine, context: AudioContext): void {
   const voices = bundledVoices();
   const select = byId<HTMLSelectElement>('voice-select');
   const keyboard = byId('keyboard');
@@ -70,7 +75,12 @@ function setup(engine: FmEngine): void {
     renderParams(byId('params'), voice);
   };
 
+  const clearPressedHighlight = () => {
+    keyboard.querySelectorAll('.key.pressed').forEach((el) => el.classList.remove('pressed'));
+  };
+
   const press = (key: string, note: number) => {
+    if (context.state !== 'running') void context.resume();
     engine.noteOn(tracker.press(key, note));
     keyboard.querySelectorAll<HTMLElement>('.key').forEach((el) => {
       el.classList.toggle('pressed', Number(el.dataset.note) === note);
@@ -80,7 +90,13 @@ function setup(engine: FmEngine): void {
   const release = (key: string) => {
     if (!tracker.release(key)) return;
     engine.noteOff();
-    keyboard.querySelectorAll('.key.pressed').forEach((el) => el.classList.remove('pressed'));
+    clearPressedHighlight();
+  };
+
+  const releaseAll = () => {
+    if (!tracker.releaseAll()) return;
+    engine.noteOff();
+    clearPressedHighlight();
   };
 
   const renderKeyboard = () => {
@@ -133,11 +149,16 @@ function setup(engine: FmEngine): void {
 
   window.addEventListener('keydown', (e) => {
     if (e.repeat || e.target instanceof HTMLTextAreaElement) return;
+    if (e.ctrlKey || e.metaKey || e.altKey) return;
     const offset = PC_KEY_OFFSETS[e.key.toLowerCase()];
     if (offset === undefined) return;
     press(`key:${e.key.toLowerCase()}`, base + offset);
   });
   window.addEventListener('keyup', (e) => release(`key:${e.key.toLowerCase()}`));
+  window.addEventListener('blur', releaseAll);
+  document.addEventListener('visibilitychange', () => {
+    if (document.hidden) releaseAll();
+  });
 
   byId('load-json').addEventListener('click', () => {
     const errorList = byId('json-errors');
@@ -160,8 +181,12 @@ byId('start').addEventListener('click', async () => {
   const button = byId<HTMLButtonElement>('start');
   const errorText = byId('start-error');
   button.disabled = true;
+  let context: AudioContext | undefined;
   try {
-    const context = new AudioContext();
+    const audioSession = (navigator as NavigatorWithAudioSession).audioSession;
+    if (audioSession) audioSession.type = 'playback';
+    context = new AudioContext();
+    void context.resume();
     const engine = await FmEngine.create(context);
     if (new URLSearchParams(location.search).has('debug')) {
       const analyser = context.createAnalyser();
@@ -171,10 +196,11 @@ byId('start').addEventListener('click', async () => {
       engine.node.connect(context.destination);
     }
     await context.resume();
-    setup(engine);
+    setup(engine, context);
     button.hidden = true;
     byId('controls').hidden = false;
   } catch (e) {
+    if (context) void context.close();
     button.disabled = false;
     errorText.hidden = false;
     errorText.textContent = `音源を開始できませんでした：${e instanceof Error ? e.message : String(e)}`;

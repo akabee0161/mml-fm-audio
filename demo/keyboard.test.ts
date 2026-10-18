@@ -57,4 +57,13 @@ describe('MonoNoteTracker', () => {
     const t = new MonoNoteTracker();
     expect(t.release('x')).toBe(false);
   });
+
+  it('releaseAll: 鳴っている音があればキーオフし、なければ何もしない', () => {
+    const t = new MonoNoteTracker();
+    expect(t.releaseAll()).toBe(false); // まだ何も押していない
+    t.press('a', 60);
+    expect(t.releaseAll()).toBe(true);
+    expect(t.releaseAll()).toBe(false); // 既に止めた後は何もしない
+    expect(t.release('a')).toBe(false); // releaseAll 後は 'a' の release も無効
+  });
 });

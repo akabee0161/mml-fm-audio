@@ -10,12 +10,14 @@ body {
   margin: 0.5rem 0;
 }
 .keyboard {
+  --white: min(36px, calc((100vw - 2rem) / 15));
   display: flex;
   align-items: flex-start;
-  overflow-x: auto;
   padding: 0.5rem 0;
   touch-action: none;
   user-select: none;
+  -webkit-user-select: none;
+  -webkit-touch-callout: none;
 }
 .key {
   flex: none;
@@ -28,14 +30,14 @@ body {
   justify-content: center;
 }
 .key.white {
-  width: 36px;
+  width: var(--white);
   height: 140px;
   background: #fff;
 }
 .key.black {
-  width: 24px;
+  width: calc(var(--white) * 0.66);
   height: 90px;
-  margin: 0 -12px;
+  margin: 0 calc(var(--white) * -0.33);
   background: #222;
   color: #fff;
   position: relative;

@@ -67,4 +67,11 @@ export class MonoNoteTracker {
     this.current = null;
     return true;
   }
+
+  /** 鳴っている音があれば（どのキーが押したかに関わらず）止める。キーオフすべきなら true */
+  releaseAll(): boolean {
+    if (this.current === null) return false;
+    this.current = null;
+    return true;
+  }
 }
