@@ -33,10 +33,16 @@ export class FmEngine {
   }
 
   noteOn(note: number, time = this.nowFrame()): void {
+    if (!Number.isFinite(note) || !Number.isFinite(time)) {
+      throw new RangeError(`noteOn: note と time は有限の数値にしてください（note=${note}, time=${time}）`);
+    }
     this.send({ type: 'noteOn', note, time });
   }
 
   noteOff(time = this.nowFrame()): void {
+    if (!Number.isFinite(time)) {
+      throw new RangeError(`noteOff: time は有限の数値にしてください（time=${time}）`);
+    }
     this.send({ type: 'noteOff', time });
   }
 

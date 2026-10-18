@@ -24,6 +24,22 @@ export function isBlack(note: number): boolean {
   return BLACK.has(note % 12);
 }
 
+/** 画面の鍵盤ボタンにフォーカスした状態で押すと有効化される keydown/keyup のキー */
+export function isActivationKey(key: string): boolean {
+  return key === 'Enter' || key === ' ';
+}
+
+/**
+ * 支援技術（スクリーンリーダー等）がポインター／キーボードのイベントを経由せず
+ * 直接発火する click は detail が 0。マウス・タッチの click は 1 以上になる。
+ */
+export function isAssistiveClick(detail: number): boolean {
+  return detail === 0;
+}
+
+/** 支援技術による click を検知してから、押している体にする長さ（ms） */
+export const ASSISTIVE_CLICK_HOLD_MS = 300;
+
 /** baseNote から octaves オクターブ分（終わりの C を含む） */
 export function keyLayout(baseNote: number, octaves: number): KeyInfo[] {
   const keys: KeyInfo[] = [];

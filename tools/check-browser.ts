@@ -13,11 +13,12 @@ function check(condition: boolean, message: string): void {
 }
 
 const server = await preview({ preview: { port: PORT, strictPort: true } });
-const browser = await chromium.launch({
-  executablePath,
-  args: ['--no-sandbox', '--autoplay-policy=no-user-gesture-required'],
-});
+let browser: import('playwright-core').Browser | undefined;
 try {
+  browser = await chromium.launch({
+    executablePath,
+    args: ['--no-sandbox', '--autoplay-policy=no-user-gesture-required'],
+  });
   const page = await browser.newPage();
   const pageErrors: string[] = [];
   page.on('pageerror', (e) => pageErrors.push(e.message));
@@ -40,6 +41,6 @@ try {
 
   check(pageErrors.length === 0, `ページでエラーが起きていない（${pageErrors.join(' / ')}）`);
 } finally {
-  await browser.close();
+  if (browser) await browser.close();
   await new Promise<void>((resolve) => server.httpServer.close(() => resolve()));
 }

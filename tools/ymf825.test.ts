@@ -1,5 +1,5 @@
 import { readFileSync } from 'node:fs';
-import { GM_ASSIGNMENTS, convertAll, parseToneData, toVoice } from './ymf825';
+import { GM_ASSIGNMENTS, convertAll, parseToneData, toVoice } from './ymf825.ts';
 
 const TONEDATA = readFileSync(new URL('../voices/ymf825/tonedata.txt', import.meta.url), 'utf8');
 

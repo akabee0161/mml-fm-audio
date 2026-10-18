@@ -1,4 +1,14 @@
-import { MonoNoteTracker, PC_KEY_OFFSETS, isBlack, keyLayout, noteName, parseVoiceJson, shiftBase } from './keyboard';
+import {
+  MonoNoteTracker,
+  PC_KEY_OFFSETS,
+  isActivationKey,
+  isAssistiveClick,
+  isBlack,
+  keyLayout,
+  noteName,
+  parseVoiceJson,
+  shiftBase,
+} from './keyboard';
 
 describe('鍵盤の配置', () => {
   it('ノート名は MIDI の慣例（60 = C4）', () => {
@@ -41,6 +51,30 @@ describe('parseVoiceJson', () => {
     const result = parseVoiceJson('{"id": 0}');
     expect(result.ok).toBe(false);
     if (!result.ok) expect(result.errors.map((e) => e.path)).toContain('name');
+  });
+});
+
+describe('isActivationKey', () => {
+  it('Enter と Space を鍵盤ボタンの有効化キーとみなす', () => {
+    expect(isActivationKey('Enter')).toBe(true);
+    expect(isActivationKey(' ')).toBe(true);
+  });
+
+  it('それ以外のキーは有効化キーではない', () => {
+    expect(isActivationKey('a')).toBe(false);
+    expect(isActivationKey('Tab')).toBe(false);
+    expect(isActivationKey('Spacebar')).toBe(false);
+  });
+});
+
+describe('isAssistiveClick', () => {
+  it('detail が 0 なら支援技術による click とみなす', () => {
+    expect(isAssistiveClick(0)).toBe(true);
+  });
+
+  it('detail が 1 以上ならマウス/タッチの click で、支援技術とはみなさない', () => {
+    expect(isAssistiveClick(1)).toBe(false);
+    expect(isAssistiveClick(2)).toBe(false);
   });
 });
 

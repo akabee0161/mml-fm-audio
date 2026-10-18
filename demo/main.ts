@@ -2,7 +2,17 @@ import './style.css';
 import { FmEngine, validateVoice, type FmVoice, type ValidationError } from '@mml-fm-audio/engine';
 import gmVoices from '../voices/ymf825/gm.json';
 import unassignedVoices from '../voices/ymf825/unassigned.json';
-import { MonoNoteTracker, PC_KEY_OFFSETS, keyLayout, noteName, parseVoiceJson, shiftBase } from './keyboard';
+import {
+  ASSISTIVE_CLICK_HOLD_MS,
+  MonoNoteTracker,
+  PC_KEY_OFFSETS,
+  isActivationKey,
+  isAssistiveClick,
+  keyLayout,
+  noteName,
+  parseVoiceJson,
+  shiftBase,
+} from './keyboard';
 import { renderParams } from './params';
 
 declare global {
@@ -146,6 +156,31 @@ function setup(engine: FmEngine, context: AudioContext): void {
   for (const type of ['pointerup', 'pointercancel'] as const) {
     window.addEventListener(type, (e) => release(`pointer:${e.pointerId}`));
   }
+
+  keyboard.addEventListener('keydown', (e) => {
+    const target = (e.target as HTMLElement).closest<HTMLElement>('.key');
+    if (!target || !isActivationKey(e.key)) return;
+    e.preventDefault();
+    if (e.repeat) return;
+    press(`focus:${target.dataset.note}`, Number(target.dataset.note));
+  });
+  keyboard.addEventListener('keyup', (e) => {
+    const target = (e.target as HTMLElement).closest<HTMLElement>('.key');
+    if (!target || !isActivationKey(e.key)) return;
+    release(`focus:${target.dataset.note}`);
+  });
+  // スクリーンリーダー等が pointerdown/keydown を経由せず直接発火する click（AT 操作）。
+  // マウス/タッチの click（detail >= 1）や、上の keydown/keyup で処理済みの Enter/Space による
+  // click（それらは preventDefault 済みなので発生しない）とは区別する。
+  keyboard.addEventListener('click', (e) => {
+    if (!isAssistiveClick(e.detail)) return;
+    const target = (e.target as HTMLElement).closest<HTMLElement>('.key');
+    if (!target) return;
+    const note = Number(target.dataset.note);
+    const key = `assistive-click:${note}`;
+    press(key, note);
+    setTimeout(() => release(key), ASSISTIVE_CLICK_HOLD_MS);
+  });
 
   window.addEventListener('keydown', (e) => {
     if (e.repeat || e.target instanceof HTMLTextAreaElement) return;
