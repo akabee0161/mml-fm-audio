@@ -2,9 +2,35 @@
 <html lang="ja">
   <head>
     <meta charset="utf-8" />
-    <title>mml-fm-audio</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>mml-fm-audio 試聴</title>
   </head>
   <body>
-    <p>準備中</p>
+    <main>
+      <h1>mml-fm-audio 試聴</h1>
+      <button id="start" type="button">音を出す</button>
+      <p id="start-error" class="errors" hidden></p>
+      <section id="controls" hidden>
+        <div class="row">
+          <label>音色 <select id="voice-select"></select></label>
+          <label><input id="quantize" type="checkbox" checked /> 16bit 丸め</label>
+        </div>
+        <div class="row">
+          <button id="octave-down" type="button">オクターブ −</button>
+          <span id="octave-label"></span>
+          <button id="octave-up" type="button">オクターブ ＋</button>
+        </div>
+        <div id="keyboard" class="keyboard"></div>
+        <p class="hint">PC では a〜k が白鍵、w e t y u が黒鍵です。</p>
+        <ul id="warnings" class="warnings"></ul>
+        <h2>音色 JSON を貼り付ける</h2>
+        <textarea id="voice-json" rows="8" spellcheck="false"></textarea>
+        <button id="load-json" type="button">読み込む</button>
+        <ul id="json-errors" class="errors"></ul>
+        <h2>パラメーター</h2>
+        <div id="params"></div>
+      </section>
+    </main>
+    <script type="module" src="./main.ts"></script>
   </body>
 </html>
