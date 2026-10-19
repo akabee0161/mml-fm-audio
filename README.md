@@ -11,6 +11,8 @@ M1（4 オペレーター FM を 1 音、AudioWorklet で鳴らす）まで。�
 
 - 設計：`docs/superpowers/specs/2026-10-11-m1-engine-design.md`
 - 実装計画：`docs/superpowers/plans/2026-10-11-m1-engine.md`
+- 残っている課題：`ISSUES.md`
+- 作業の引き継ぎ：`HANDOVER.md`
 
 ## 構成
 
