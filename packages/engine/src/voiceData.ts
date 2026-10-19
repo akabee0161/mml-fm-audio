@@ -163,6 +163,8 @@ export const CARRIERS: readonly (readonly number[])[] = [[1], [0, 1], [0, 1, 2, 
 
 const DRUM_ID_RANGE: Range = [128, 255];
 const NOTE_RANGE: Range = [0, 127];
+// ノイズは ar・dr が 0 だと鳴り終わらないため 1 から
+const NOISE_ENV_RANGE: Range = [1, 15];
 const ENV_RANGE: Range = [0, 15];
 const NOISE_RR_RANGE: Range = [1, 15];
 const REPEAT_COUNT_RANGE: Range = [1, 8];
@@ -213,9 +215,11 @@ export function validateDrum(input: unknown): DrumValidationResult {
         // ドラムはキーオフを無視するので、出力するオペレーターが自分で鳴り終わる必要がある
         for (const c of CARRIERS[result.voice.alg]!) {
           const op = result.voice.ops[c]!;
-          if (op.sl < 15 && op.sr === 0) {
-            errors.push({ path: `fm.voice.ops[${c}].sr`, message: 'ドラムは鳴り終わる必要があるため、sl=15 か sr≥1 にしてください' });
-          }
+          const fail = (field: string, message: string) =>
+            errors.push({ path: `fm.voice.ops[${c}].${field}`, message: `ドラムは鳴り終わる必要があるため、${message}` });
+          if (op.ar === 0) fail('ar', 'ar≥1 にしてください');
+          if (op.dr === 0) fail('dr', 'dr≥1 にしてください');
+          if (op.sl < 15 && op.sr === 0) fail('sr', 'sl=15 か sr≥1 にしてください');
         }
       }
       const note = checkInt(fm.note, NOTE_RANGE, 'fm.note', errors);
@@ -246,8 +250,8 @@ export function validateDrum(input: unknown): DrumValidationResult {
       }
       drum.noise = {
         level: checkNumber(noise.level, [0, 1], 'noise.level', errors),
-        ar: checkInt(noise.ar, ENV_RANGE, 'noise.ar', errors),
-        dr: checkInt(noise.dr, ENV_RANGE, 'noise.dr', errors),
+        ar: checkInt(noise.ar, NOISE_ENV_RANGE, 'noise.ar', errors),
+        dr: checkInt(noise.dr, NOISE_ENV_RANGE, 'noise.dr', errors),
         sl: checkInt(noise.sl, ENV_RANGE, 'noise.sl', errors),
         rr: checkInt(noise.rr, NOISE_RR_RANGE, 'noise.rr', errors),
         color: 'white',

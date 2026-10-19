@@ -1,6 +1,7 @@
-import { ALGORITHMS } from './algorithms';
+import { ALGORITHMS, type Algorithm } from './algorithms';
 import { Envelope } from './envelope';
-import type { Lfo } from './lfo';
+import { Noise } from './noise';
+import { panGains } from './output';
 import {
   AM_DEPTH_DB,
   FB_RAD,
@@ -12,14 +13,20 @@ import {
   VIB_DEPTH_CENTS,
   operatorFrequency,
 } from './tables';
-import type { FmVoice } from './voiceData';
+import type { AnyVoice, DrumNoise, FmVoice } from './voiceData';
 import { TABLE_SIZE, WAVE_TABLES } from './waveforms';
 
 const TWO_PI = 2 * Math.PI;
 
-/** 4 オペレーター FM の 1 ボイス */
+/** 1 音。FM 音色（4 オペレーター）か、ドラム（FM 部とノイズ部）を鳴らす */
 export class Voice {
-  private voice: FmVoice | null = null;
+  private fm: FmVoice | null = null;
+  private alg: Algorithm | null = null;
+  private fmLevel = 1;
+  private isDrum = false;
+  private gainLeft = 0;
+  private gainRight = 0;
+
   private readonly envelopes: Envelope[];
   private readonly phase = new Float64Array(4);
   private readonly increment = new Float64Array(4);
@@ -30,20 +37,99 @@ export class Voice {
   private readonly outputs = new Float64Array(4);
   private tables: Float32Array[] = [];
 
+  // 音程の降下（ドラム）：半音のずれ = pitchTo + pitchDiff、pitchDiff は毎サンプル pitchDecay 倍
+  private pitchTo = 0;
+  private pitchDiff = 0;
+  private pitchDecay = 1;
+  private hasPitch = false;
+
+  // ノイズ部（ドラム）
+  private noiseParams: DrumNoise | null = null;
+  private readonly noise = new Noise();
+  private readonly noiseEnvelope: Envelope;
+  private repeatsLeft = 0;
+  private repeatInterval = 0;
+  private repeatCounter = 0;
+
   constructor(private readonly sampleRate: number) {
     this.envelopes = [0, 1, 2, 3].map(() => new Envelope(sampleRate));
+    this.noiseEnvelope = new Envelope(sampleRate);
   }
 
-  /** 音色を差し替える。鳴っている音は止める */
-  setVoice(voice: FmVoice): void {
-    this.voice = voice;
+  /** timbre を note の高さで、pan（0〜127）の位置に鳴らす。鳴っていた音は切る。ドラムは note を使わない */
+  noteOn(timbre: AnyVoice, note: number, pan: number): void {
+    this.stop();
+    [this.gainLeft, this.gainRight] = panGains(pan);
+
+    if (timbre.kind === 'fm') {
+      this.isDrum = false;
+      this.fmLevel = 1;
+      this.hasPitch = false;
+      this.noiseParams = null;
+      this.startFm(timbre, note);
+      return;
+    }
+
+    this.isDrum = true;
+    this.fm = null;
+    this.alg = null;
+    if (timbre.fm) {
+      this.fmLevel = timbre.fm.level;
+      this.startFm(timbre.fm.voice, timbre.fm.note);
+    }
+    this.hasPitch = timbre.pitch !== undefined;
+    if (timbre.pitch) {
+      this.pitchTo = timbre.pitch.toSemitone;
+      this.pitchDiff = timbre.pitch.fromSemitone - timbre.pitch.toSemitone;
+      this.pitchDecay = Math.exp(-1000 / (timbre.pitch.decayMs * this.sampleRate));
+    }
+    this.noiseParams = timbre.noise ?? null;
+    if (timbre.noise) {
+      this.keyOnNoise();
+      const repeat = timbre.noise.repeat;
+      this.repeatsLeft = repeat ? repeat.count - 1 : 0;
+      this.repeatInterval = repeat ? Math.max(1, Math.round((repeat.intervalMs * this.sampleRate) / 1000)) : 0;
+      this.repeatCounter = 0;
+    }
+  }
+
+  /** キーオフ。ドラムは無視して、エンベロープが尽きるまで鳴る */
+  noteOff(): void {
+    if (this.isDrum) return;
+    for (const env of this.envelopes) env.keyOff();
+  }
+
+  /** すぐに無音にする（ボイスを奪うとき） */
+  stop(): void {
     for (const env of this.envelopes) env.reset();
+    this.noiseEnvelope.reset();
+    this.repeatsLeft = 0;
   }
 
-  noteOn(note: number): void {
-    const voice = this.voice;
-    if (!voice) return;
+  /** 出力するオペレーターかノイズ部のどれかが鳴っていれば true */
+  get active(): boolean {
+    const alg = this.alg;
+    if (alg && alg.carriers.some((c) => this.envelopes[c]!.phase !== 'off')) return true;
+    return this.noiseEnvelope.phase !== 'off' || this.repeatsLeft > 0;
+  }
+
+  /** left/right の [from, to) に足し込む。lfo[s] はサンプル s の LFO 値（−1〜1） */
+  render(left: Float32Array, right: Float32Array, from: number, to: number, lfo: Float32Array): void {
+    if (!this.active) return;
+    const gl = this.gainLeft;
+    const gr = this.gainRight;
+    for (let s = from; s < to; s++) {
+      let value = this.alg ? this.sampleFm(lfo[s]!) * this.fmLevel : 0;
+      if (this.noiseParams) value += this.sampleNoise(this.noiseParams);
+      left[s] = left[s]! + value * gl;
+      right[s] = right[s]! + value * gr;
+    }
+  }
+
+  private startFm(voice: FmVoice, note: number): void {
+    this.fm = voice;
     const alg = ALGORITHMS[voice.alg]!;
+    this.alg = alg;
     const octavesAboveC4 = Math.max(0, (note - 60) / 12);
     this.tables = [];
     for (let i = 0; i < alg.opCount; i++) {
@@ -59,30 +145,34 @@ export class Voice {
     }
   }
 
-  noteOff(): void {
-    for (const env of this.envelopes) env.keyOff();
+  private keyOnNoise(): void {
+    const n = this.noiseParams!;
+    // SL に達した後は rr の速さで下がる（ドラムにはキーオフが来ないため）
+    this.noiseEnvelope.keyOn({ ar: n.ar, dr: n.dr, sl: n.sl, sr: n.rr, rr: n.rr, ksr: 0, xof: 0 }, 60);
   }
 
-  /** 出力するオペレーターのどれかが鳴っていれば true */
-  get active(): boolean {
-    const voice = this.voice;
-    if (!voice) return false;
-    return ALGORITHMS[voice.alg]!.carriers.some((c) => this.envelopes[c]!.phase !== 'off');
-  }
-
-  /** out[from]〜out[to - 1] に書く。LFO は鳴っていなくても進める */
-  render(out: Float32Array, from: number, to: number, lfo: Lfo): void {
-    const active = this.active;
-    for (let s = from; s < to; s++) {
-      const l = lfo.next();
-      out[s] = active ? this.sample(l) : 0;
+  private sampleNoise(n: DrumNoise): number {
+    // repeatCounter は直前にかけた時からのサンプル数
+    if (this.repeatsLeft > 0 && this.repeatCounter >= this.repeatInterval) {
+      this.repeatCounter = 0;
+      this.repeatsLeft--;
+      this.keyOnNoise();
     }
+    this.repeatCounter++;
+    const db = this.noiseEnvelope.next();
+    if (db >= SILENT_DB) return 0;
+    return this.noise.next() * 10 ** (-db / 20) * n.level * OUTPUT_GAIN;
   }
 
-  private sample(lfo: number): number {
-    const voice = this.voice!;
-    const alg = ALGORITHMS[voice.alg]!;
+  private sampleFm(lfo: number): number {
+    const voice = this.fm!;
+    const alg = this.alg!;
     const outputs = this.outputs;
+    let pitchRatio = 1;
+    if (this.hasPitch) {
+      pitchRatio = 2 ** ((this.pitchTo + this.pitchDiff) / 12);
+      this.pitchDiff *= this.pitchDecay;
+    }
     for (let i = 0; i < alg.opCount; i++) {
       const op = voice.ops[i]!;
       let db = this.envelopes[i]!.next() + this.staticDb[i]!;
@@ -103,7 +193,7 @@ export class Voice {
         this.feedbackPrev1[i] = value;
       }
 
-      let inc = this.increment[i]!;
+      let inc = this.increment[i]! * pitchRatio;
       if (op.vib) inc *= 2 ** ((lfo * VIB_DEPTH_CENTS[op.vibDepth]!) / 1200);
       this.phase[i] = (this.phase[i]! + inc) % 1;
     }

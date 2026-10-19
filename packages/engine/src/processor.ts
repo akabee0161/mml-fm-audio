@@ -3,6 +3,7 @@ import { Lfo } from './lfo';
 import { PROCESSOR_NAME, type EngineMessage, type EngineReply } from './messages';
 import { clampSample, quantize16 } from './output';
 import { Voice } from './voice';
+import type { FmVoice } from './voiceData';
 import { voiceWarnings } from './waveforms';
 
 type TimedMessage = Extract<EngineMessage, { time: number }>;
@@ -11,8 +12,11 @@ class FmProcessor extends AudioWorkletProcessor {
   private readonly voice = new Voice(sampleRate);
   private readonly lfo = new Lfo(sampleRate);
   private readonly queue = new EventQueue<TimedMessage>();
+  private timbre: FmVoice | null = null;
   private quantize = true;
-  private mono = new Float32Array(128);
+  private left = new Float32Array(128);
+  private right = new Float32Array(128);
+  private lfoValues = new Float32Array(128);
 
   constructor() {
     super();
@@ -22,7 +26,8 @@ class FmProcessor extends AudioWorkletProcessor {
   private receive(message: EngineMessage): void {
     switch (message.type) {
       case 'setVoice':
-        this.voice.setVoice(message.voice);
+        this.timbre = message.voice;
+        this.voice.stop();
         this.lfo.setRate(message.voice.lfo);
         for (const warning of voiceWarnings(message.voice)) {
           this.port.postMessage({ type: 'warning', message: warning } satisfies EngineReply);
@@ -39,31 +44,42 @@ class FmProcessor extends AudioWorkletProcessor {
   }
 
   private apply(message: TimedMessage): void {
-    if (message.type === 'noteOn') this.voice.noteOn(message.note);
-    else this.voice.noteOff();
+    if (message.type === 'noteOn') {
+      if (this.timbre) this.voice.noteOn(this.timbre, message.note, 64);
+    } else {
+      this.voice.noteOff();
+    }
   }
 
   process(_inputs: Float32Array[][], outputs: Float32Array[][]): boolean {
     const channels = outputs[0];
     if (!channels || channels.length === 0) return true;
     const length = channels[0]!.length;
-    if (this.mono.length !== length) this.mono = new Float32Array(length);
+    if (this.left.length !== length) {
+      this.left = new Float32Array(length);
+      this.right = new Float32Array(length);
+      this.lfoValues = new Float32Array(length);
+    }
+    this.left.fill(0);
+    this.right.fill(0);
+    for (let i = 0; i < length; i++) this.lfoValues[i] = this.lfo.next();
 
     let pos = 0;
     for (const { offset, event } of this.queue.takeDue(currentFrame, length)) {
       if (offset > pos) {
-        this.voice.render(this.mono, pos, offset, this.lfo);
+        this.voice.render(this.left, this.right, pos, offset, this.lfoValues);
         pos = offset;
       }
       this.apply(event);
     }
-    this.voice.render(this.mono, pos, length, this.lfo);
+    this.voice.render(this.left, this.right, pos, length, this.lfoValues);
 
     const finish = this.quantize ? quantize16 : clampSample;
-    for (let i = 0; i < length; i++) {
-      const value = finish(this.mono[i]!);
-      for (const channel of channels) channel[i] = value;
-    }
+    const stereo = [this.left, this.right];
+    channels.forEach((channel, c) => {
+      const source = stereo[Math.min(c, 1)]!;
+      for (let i = 0; i < length; i++) channel[i] = finish(source[i]!);
+    });
     return true;
   }
 }

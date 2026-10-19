@@ -94,7 +94,7 @@ describe('validateDrum', () => {
   // ドラムの FM 部は鳴り終わる必要があるので、出力するオペレーターは sl=15 にしておく
   const drumFm = (alg = 0) => ({
     id: null, name: 'Body', kind: 'fm', bo: 0, alg, lfo: 0,
-    ops: [op({ sl: 15 }), op({ sl: 15 }), op({ sl: 15 }), op({ sl: 15 })],
+    ops: [op({ sl: 15, dr: 8 }), op({ sl: 15, dr: 8 }), op({ sl: 15, dr: 8 }), op({ sl: 15, dr: 8 })],
   });
   const bd = (overrides: Record<string, unknown> = {}) => ({
     id: 128, name: 'bd', kind: 'drum',
@@ -174,6 +174,20 @@ describe('validateDrum', () => {
     const v = drumFm(0);
     v.ops[1] = op({ sl: 3, sr: 0 });
     expect(paths(bd({ fm: { voice: v, note: 36, level: 1 } }))).toContain('fm.voice.ops[1].sr');
+  });
+
+  it('出力するオペレーターの ar=0 や dr=0 も鳴り終わらないのでエラー', () => {
+    const v = drumFm(0);
+    v.ops[1] = op({ sl: 15, dr: 0 });
+    expect(paths(bd({ fm: { voice: v, note: 36, level: 1 } }))).toContain('fm.voice.ops[1].dr');
+    v.ops[1] = op({ sl: 15, ar: 0 });
+    expect(paths(bd({ fm: { voice: v, note: 36, level: 1 } }))).toContain('fm.voice.ops[1].ar');
+  });
+
+  it('ノイズの ar=0 や dr=0 も鳴り終わらないのでエラー', () => {
+    const p = paths({ id: 130, name: 'ch', kind: 'drum', noise: noise({ ar: 0, dr: 0 }) });
+    expect(p).toContain('noise.ar');
+    expect(p).toContain('noise.dr');
   });
 
   it('出力しないオペレーターは sl<15 かつ sr=0 でもよい', () => {
