@@ -76,6 +76,29 @@ describe('Voice', () => {
     expect(peak(play(fmVoice(5, silentCarriers), 69, 4800))).toBeLessThan(0.01);
   });
 
+  // spec §3.6 の「出力するオペレーター」（0 始まりの添字）
+  it.each([
+    [1, [0, 1]],
+    [2, [0, 1, 2, 3]],
+    [3, [3]],
+    [6, [0, 3]],
+    [7, [0, 2, 3]],
+  ])('alg %i の出力するオペレーターは %j', (alg, carriers) => {
+    const count = alg <= 1 ? 2 : 4;
+    const indices = [...Array(count).keys()];
+    const build = (silent: (i: number) => boolean) =>
+      fmVoice(alg, indices.map((i) => op({ tl: silent(i) ? 63 : 0 })));
+
+    // 出力するものをすべて止めると無音
+    expect(peak(play(build((i) => carriers.includes(i)), 69, 4800))).toBeLessThan(0.01);
+    // 出力しないものをすべて止めても鳴る
+    expect(peak(play(build((i) => !carriers.includes(i)), 69, 4800))).toBeGreaterThan(0.05);
+    // 出力するもののうち 1 つだけを鳴らしても鳴る
+    for (const c of carriers) {
+      expect(peak(play(build((i) => i !== c), 69, 4800))).toBeGreaterThan(0.05);
+    }
+  });
+
   it('変調をかけると波形が変わる（alg 0 の op1 を TL=0 にする）', () => {
     const plain = play(fmVoice(0, [op({ tl: 63 }), op()]), 69, 480);
     const modulated = play(fmVoice(0, [op(), op()]), 69, 480);
