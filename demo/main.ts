@@ -71,6 +71,7 @@ function setup(engine: FmEngine, context: AudioContext): void {
   const warnings = byId('warnings');
   const tracker = new MonoNoteTracker();
   let base = 60;
+  let currentId: number | null = null;
 
   const addOption = (voice: FmVoice, index: number) => {
     const option = document.createElement('option');
@@ -81,7 +82,7 @@ function setup(engine: FmEngine, context: AudioContext): void {
 
   const selectVoice = (voice: FmVoice) => {
     listItems(warnings, []);
-    engine.setVoice(voice);
+    engine.registerVoice(0, voice);
     renderParams(byId('params'), voice);
   };
 
@@ -91,7 +92,8 @@ function setup(engine: FmEngine, context: AudioContext): void {
 
   const press = (key: string, note: number) => {
     if (context.state !== 'running') void context.resume();
-    engine.noteOn(tracker.press(key, note));
+    if (currentId !== null) engine.noteOff(currentId);
+    currentId = engine.noteOn(0, tracker.press(key, note));
     keyboard.querySelectorAll<HTMLElement>('.key').forEach((el) => {
       el.classList.toggle('pressed', Number(el.dataset.note) === note);
     });
@@ -99,13 +101,15 @@ function setup(engine: FmEngine, context: AudioContext): void {
 
   const release = (key: string) => {
     if (!tracker.release(key)) return;
-    engine.noteOff();
+    if (currentId !== null) engine.noteOff(currentId);
+    currentId = null;
     clearPressedHighlight();
   };
 
   const releaseAll = () => {
     if (!tracker.releaseAll()) return;
-    engine.noteOff();
+    if (currentId !== null) engine.noteOff(currentId);
+    currentId = null;
     clearPressedHighlight();
   };
 
