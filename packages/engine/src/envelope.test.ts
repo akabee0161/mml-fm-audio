@@ -42,6 +42,16 @@ describe('Envelope', () => {
     expect(env.next()).toBe(96);
   });
 
+  it('オペレーター以外の、エンベロープの項目だけのオブジェクトでも鳴り、SR で下がって止まる', () => {
+    const env = new Envelope(SR);
+    env.keyOn({ ar: 15, dr: 15, sl: 4, sr: 10, rr: 15, ksr: 0, xof: 0 }, 60);
+    expect(env.phase).toBe('decay');
+    run(env, 10);
+    expect(env.phase).toBe('sustain');
+    run(env, 10_000);
+    expect(env.phase).toBe('off');
+  });
+
   it('AR=15 は直ちに 0 dB', () => {
     const env = new Envelope(SR);
     env.keyOn(op({ ar: 15 }), 60);
