@@ -39,6 +39,33 @@ export interface ValidationError {
 
 export type ValidationResult = { ok: true; voice: FmVoice } | { ok: false; errors: ValidationError[] };
 
+export interface DrumNoise {
+  level: number;
+  ar: number;
+  dr: number;
+  sl: number;
+  /** SL に達した後に下がる速さ（ドラムにはキーオフが来ないため） */
+  rr: number;
+  color: 'white';
+  /** エンベロープを intervalMs ごとに count 回かけ直す */
+  repeat?: { count: number; intervalMs: number };
+}
+
+export interface DrumVoice {
+  /** ドラムの番号（128〜255） */
+  id: number;
+  name: string;
+  kind: 'drum';
+  fm?: { voice: FmVoice; note: number; level: number };
+  /** 音程を fromSemitone から toSemitone へ、decayMs を時定数として近づける */
+  pitch?: { fromSemitone: number; toSemitone: number; decayMs: number };
+  noise?: DrumNoise;
+}
+
+export type AnyVoice = FmVoice | DrumVoice;
+
+export type DrumValidationResult = { ok: true; voice: DrumVoice } | { ok: false; errors: ValidationError[] };
+
 type Range = readonly [number, number];
 
 export const OP_RANGES: Readonly<Record<keyof FmOperator, Range>> = {
@@ -126,4 +153,117 @@ export function validateVoice(input: unknown): ValidationResult {
 
   if (errors.length > 0) return { ok: false, errors };
   return { ok: true, voice: { id, name: name as string, kind: 'fm', bo, alg, lfo, ops } };
+}
+
+/**
+ * アルゴリズムごとの出力するオペレーター（0 始まり、spec §3.6）。
+ * algorithms.ts と同じ内容だが、このファイルは他を import できないため持つ。
+ */
+export const CARRIERS: readonly (readonly number[])[] = [[1], [0, 1], [0, 1, 2, 3], [3], [3], [1, 3], [0, 3], [0, 2, 3]];
+
+const DRUM_ID_RANGE: Range = [128, 255];
+const NOTE_RANGE: Range = [0, 127];
+const ENV_RANGE: Range = [0, 15];
+const NOISE_RR_RANGE: Range = [1, 15];
+const REPEAT_COUNT_RANGE: Range = [1, 8];
+
+function checkNumber(value: unknown, [min, max]: Range, path: string, errors: ValidationError[], minExclusive = false): number {
+  const tooSmall = typeof value === 'number' && (minExclusive ? value <= min : value < min);
+  if (typeof value !== 'number' || !Number.isFinite(value) || tooSmall || value > max) {
+    const lower = minExclusive ? `${min} より大きく` : `${min} 以上`;
+    errors.push({ path, message: `${lower} ${max} 以下の数を指定してください（値: ${JSON.stringify(value)}）` });
+    return min;
+  }
+  return value;
+}
+
+function checkRecord(value: unknown, path: string, errors: ValidationError[]): Record<string, unknown> | null {
+  if (isRecord(value)) return value;
+  errors.push({ path, message: 'オブジェクトで指定してください' });
+  return null;
+}
+
+/** ドラム音色（spec §3.4）を検証する */
+export function validateDrum(input: unknown): DrumValidationResult {
+  if (!isRecord(input)) {
+    return { ok: false, errors: [{ path: '', message: 'ドラム音色はオブジェクトで指定してください' }] };
+  }
+  const errors: ValidationError[] = [];
+  const id = checkInt(input.id, DRUM_ID_RANGE, 'id', errors);
+  const name = input.name;
+  if (typeof name !== 'string' || name === '') {
+    errors.push({ path: 'name', message: '空でない文字列を指定してください' });
+  }
+  if (input.kind !== 'drum') {
+    errors.push({ path: 'kind', message: '"drum" を指定してください' });
+  }
+  if (input.fm === undefined && input.noise === undefined) {
+    errors.push({ path: '', message: 'fm と noise の少なくとも一方を指定してください' });
+  }
+
+  const drum: DrumVoice = { id, name: name as string, kind: 'drum' };
+
+  if (input.fm !== undefined) {
+    const fm = checkRecord(input.fm, 'fm', errors);
+    if (fm) {
+      const result = validateVoice(fm.voice);
+      if (!result.ok) {
+        for (const e of result.errors) errors.push({ path: e.path ? `fm.voice.${e.path}` : 'fm.voice', message: e.message });
+      } else {
+        // ドラムはキーオフを無視するので、出力するオペレーターが自分で鳴り終わる必要がある
+        for (const c of CARRIERS[result.voice.alg]!) {
+          const op = result.voice.ops[c]!;
+          if (op.sl < 15 && op.sr === 0) {
+            errors.push({ path: `fm.voice.ops[${c}].sr`, message: 'ドラムは鳴り終わる必要があるため、sl=15 か sr≥1 にしてください' });
+          }
+        }
+      }
+      const note = checkInt(fm.note, NOTE_RANGE, 'fm.note', errors);
+      const level = checkNumber(fm.level, [0, 1], 'fm.level', errors);
+      if (result.ok) drum.fm = { voice: result.voice, note, level };
+    }
+  }
+
+  if (input.pitch !== undefined) {
+    if (input.fm === undefined) {
+      errors.push({ path: 'pitch', message: 'pitch は fm と一緒に指定してください' });
+    }
+    const pitch = checkRecord(input.pitch, 'pitch', errors);
+    if (pitch) {
+      drum.pitch = {
+        fromSemitone: checkNumber(pitch.fromSemitone, [-48, 48], 'pitch.fromSemitone', errors),
+        toSemitone: checkNumber(pitch.toSemitone, [-48, 48], 'pitch.toSemitone', errors),
+        decayMs: checkNumber(pitch.decayMs, [0, 1000], 'pitch.decayMs', errors, true),
+      };
+    }
+  }
+
+  if (input.noise !== undefined) {
+    const noise = checkRecord(input.noise, 'noise', errors);
+    if (noise) {
+      if (noise.color !== 'white') {
+        errors.push({ path: 'noise.color', message: '"white" を指定してください' });
+      }
+      drum.noise = {
+        level: checkNumber(noise.level, [0, 1], 'noise.level', errors),
+        ar: checkInt(noise.ar, ENV_RANGE, 'noise.ar', errors),
+        dr: checkInt(noise.dr, ENV_RANGE, 'noise.dr', errors),
+        sl: checkInt(noise.sl, ENV_RANGE, 'noise.sl', errors),
+        rr: checkInt(noise.rr, NOISE_RR_RANGE, 'noise.rr', errors),
+        color: 'white',
+      };
+      if (noise.repeat !== undefined) {
+        const repeat = checkRecord(noise.repeat, 'noise.repeat', errors);
+        if (repeat) {
+          drum.noise.repeat = {
+            count: checkInt(repeat.count, REPEAT_COUNT_RANGE, 'noise.repeat.count', errors),
+            intervalMs: checkNumber(repeat.intervalMs, [1, 100], 'noise.repeat.intervalMs', errors),
+          };
+        }
+      }
+    }
+  }
+
+  if (errors.length > 0) return { ok: false, errors };
+  return { ok: true, voice: drum };
 }

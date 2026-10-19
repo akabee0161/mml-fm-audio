@@ -2,8 +2,17 @@ import processorUrl from './processor.ts?worker&url';
 import { PROCESSOR_NAME, type EngineMessage, type EngineReply } from './messages';
 import type { FmVoice } from './voiceData';
 
-export { OP_FIELDS, OP_RANGES, opCount, validateVoice } from './voiceData';
-export type { FmOperator, FmVoice, ValidationError, ValidationResult } from './voiceData';
+export { OP_FIELDS, OP_RANGES, opCount, validateDrum, validateVoice } from './voiceData';
+export type {
+  AnyVoice,
+  DrumNoise,
+  DrumValidationResult,
+  DrumVoice,
+  FmOperator,
+  FmVoice,
+  ValidationError,
+  ValidationResult,
+} from './voiceData';
 
 /** メインスレッドから音源を操作する */
 export class FmEngine {
