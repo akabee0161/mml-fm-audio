@@ -1,0 +1,10 @@
+name = "ankardo-game-mml-fm-audio"
+compatibility_date = "2026-10-11"
+
+routes = [
+  { pattern = "ankardo.com/play/mml-fm-audio/*", zone_name = "ankardo.com" }
+]
+
+[assets]
+directory = "./out"
+not_found_handling = "404-page"
