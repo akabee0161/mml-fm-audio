@@ -53,3 +53,6 @@ export function operatorFrequency(note: number, bo: number, mul: number, dt: num
   const base = 440 * 2 ** ((note - 69) / 12);
   return base * BO_TABLE[bo] * MUL_TABLE[mul] * 2 ** (DT_CENTS[dt] / 1200);
 }
+
+/** 全ボイスの左右の和に掛ける係数（暫定。中央の 1 音は M1 の約 0.35 倍になる） */
+export const MIX_GAIN = 0.5;

@@ -1,11 +1,21 @@
 import './style.css';
-import { FmEngine, validateVoice, type FmVoice, type ValidationError } from '@mml-fm-audio/engine';
+import {
+  FmEngine,
+  MAX_VOICES,
+  validateDrum,
+  validateVoice,
+  type DrumVoice,
+  type FmVoice,
+  type LoadReport,
+  type ValidationError,
+} from '@mml-fm-audio/engine';
+import drumData from '../voices/custom/drums.json';
 import gmVoices from '../voices/ymf825/gm.json';
 import unassignedVoices from '../voices/ymf825/unassigned.json';
 import {
   ASSISTIVE_CLICK_HOLD_MS,
-  MonoNoteTracker,
   PC_KEY_OFFSETS,
+  PolyNoteTracker,
   isActivationKey,
   isAssistiveClick,
   keyLayout,
@@ -14,10 +24,11 @@ import {
   shiftBase,
 } from './keyboard';
 import { renderParams } from './params';
+import { catchUpBar, scheduleBar } from './rhythm';
 
 declare global {
   interface Window {
-    __mmlFmAudio?: { peak(): number };
+    __mmlFmAudio?: { peak(): number; peakLeft(): number; peakRight(): number };
   }
 }
 
@@ -27,6 +38,24 @@ interface NavigatorWithAudioSession extends Navigator {
 }
 
 const OCTAVES = 2;
+/** 鍵盤と 16 音ボタンで使う音色の番号。選んだ音色をここへ登録し直す */
+const KEYBOARD_PROGRAM = 0;
+/** 16 音ボタンの最低音（C3） */
+const POLY_TEST_BASE = 48;
+const RHYTHM_BPM = 120;
+const RHYTHM_TICK_MS = 25;
+const RHYTHM_LOOKAHEAD_SEC = 0.1;
+
+const DRUM_LABELS: Readonly<Record<string, string>> = {
+  bd: 'バスドラム',
+  sd: 'スネア',
+  ch: 'クローズドハイハット',
+  oh: 'オープンハイハット',
+  cy: 'シンバル',
+  lt: 'ロータム',
+  ht: 'ハイタム',
+  cp: 'クラップ',
+};
 
 function byId<T extends HTMLElement>(id: string): T {
   const el = document.getElementById(id);
@@ -44,6 +73,16 @@ function bundledVoices(): FmVoice[] {
   return voices;
 }
 
+function bundledDrums(): DrumVoice[] {
+  const drums: DrumVoice[] = [];
+  for (const raw of drumData) {
+    const result = validateDrum(raw);
+    if (result.ok) drums.push(result.voice);
+    else console.error('同梱のドラムが検証を通りません', raw, result.errors);
+  }
+  return drums;
+}
+
 function listItems(list: HTMLElement, items: string[]): void {
   list.replaceChildren(
     ...items.map((text) => {
@@ -54,14 +93,28 @@ function listItems(list: HTMLElement, items: string[]): void {
   );
 }
 
-function exposeDebug(analyser: AnalyserNode): void {
-  const buffer = new Float32Array(analyser.fftSize);
-  window.__mmlFmAudio = {
-    peak() {
-      analyser.getFloatTimeDomainData(buffer);
-      return buffer.reduce((m, x) => Math.max(m, Math.abs(x)), 0);
-    },
+function exposeDebug(left: AnalyserNode, right: AnalyserNode): void {
+  const buffer = new Float32Array(left.fftSize);
+  const peakOf = (analyser: AnalyserNode) => {
+    analyser.getFloatTimeDomainData(buffer);
+    return buffer.reduce((m, x) => Math.max(m, Math.abs(x)), 0);
   };
+  window.__mmlFmAudio = {
+    peak: () => Math.max(peakOf(left), peakOf(right)),
+    peakLeft: () => peakOf(left),
+    peakRight: () => peakOf(right),
+  };
+}
+
+function formatLoad(report: LoadReport): string {
+  const max = report.maxMs === null ? '−' : report.maxMs.toFixed(3);
+  const clock = report.clock === 'performance' ? 'performance.now' : 'Date.now（平均のみ）';
+  return [
+    `平均 ${report.avgMs.toFixed(3)} ms / 最大 ${max} ms`,
+    `1 ブロック ${report.blockMs.toFixed(3)} ms に対して ${report.percent.toFixed(1)} %`,
+    `鳴っていたボイス数（最大） ${report.maxVoices}`,
+    `時計 ${clock}`,
+  ].join('\n');
 }
 
 function setup(engine: FmEngine, context: AudioContext): void {
@@ -69,8 +122,16 @@ function setup(engine: FmEngine, context: AudioContext): void {
   const select = byId<HTMLSelectElement>('voice-select');
   const keyboard = byId('keyboard');
   const warnings = byId('warnings');
-  const tracker = new MonoNoteTracker();
+  const panInput = byId<HTMLInputElement>('pan');
+  const tracker = new PolyNoteTracker();
+  /** 押しているキー → 鳴らしているノート（鍵盤の色付け用） */
+  const heldNotes = new Map<string, number>();
   let base = 60;
+
+  const pan = () => Number(panInput.value);
+  const wake = () => {
+    if (context.state !== 'running') void context.resume();
+  };
 
   const addOption = (voice: FmVoice, index: number) => {
     const option = document.createElement('option');
@@ -81,32 +142,35 @@ function setup(engine: FmEngine, context: AudioContext): void {
 
   const selectVoice = (voice: FmVoice) => {
     listItems(warnings, []);
-    engine.setVoice(voice);
+    engine.registerVoice(KEYBOARD_PROGRAM, voice);
     renderParams(byId('params'), voice);
   };
 
-  const clearPressedHighlight = () => {
-    keyboard.querySelectorAll('.key.pressed').forEach((el) => el.classList.remove('pressed'));
-  };
-
-  const press = (key: string, note: number) => {
-    if (context.state !== 'running') void context.resume();
-    engine.noteOn(tracker.press(key, note));
+  const highlight = () => {
+    const notes = new Set(heldNotes.values());
     keyboard.querySelectorAll<HTMLElement>('.key').forEach((el) => {
-      el.classList.toggle('pressed', Number(el.dataset.note) === note);
+      el.classList.toggle('pressed', notes.has(Number(el.dataset.note)));
     });
   };
 
+  const press = (key: string, note: number) => {
+    if (!tracker.press(key)) return;
+    wake();
+    tracker.bind(key, engine.noteOn(KEYBOARD_PROGRAM, note, { pan: pan() }));
+    heldNotes.set(key, note);
+    highlight();
+  };
+
   const release = (key: string) => {
-    if (!tracker.release(key)) return;
-    engine.noteOff();
-    clearPressedHighlight();
+    const id = tracker.release(key);
+    if (id !== undefined) engine.noteOff(id);
+    if (heldNotes.delete(key)) highlight();
   };
 
   const releaseAll = () => {
-    if (!tracker.releaseAll()) return;
-    engine.noteOff();
-    clearPressedHighlight();
+    for (const id of tracker.releaseAll()) engine.noteOff(id);
+    heldNotes.clear();
+    highlight();
   };
 
   const renderKeyboard = () => {
@@ -122,11 +186,26 @@ function setup(engine: FmEngine, context: AudioContext): void {
       }),
     );
     byId('octave-label').textContent = `${noteName(base)}〜${noteName(base + OCTAVES * 12)}`;
+    highlight();
   };
 
   voices.forEach(addOption);
   select.addEventListener('change', () => selectVoice(voices[Number(select.value)]!));
   if (voices[0]) selectVoice(voices[0]);
+
+  for (const drum of bundledDrums()) {
+    engine.registerVoice(drum.id, drum);
+    const button = document.createElement('button');
+    button.type = 'button';
+    button.className = 'drum';
+    button.dataset.drum = drum.name;
+    button.textContent = `${drum.name} ${DRUM_LABELS[drum.name] ?? ''}`;
+    button.addEventListener('click', () => {
+      wake();
+      engine.noteOn(drum.id, 60, { pan: pan() });
+    });
+    byId('drums').appendChild(button);
+  }
 
   engine.onWarning((message) => {
     const li = document.createElement('li');
@@ -136,6 +215,70 @@ function setup(engine: FmEngine, context: AudioContext): void {
 
   byId<HTMLInputElement>('quantize').addEventListener('change', (e) => {
     engine.setQuantize((e.target as HTMLInputElement).checked);
+  });
+
+  panInput.addEventListener('input', () => {
+    byId('pan-value').textContent = panInput.value;
+  });
+
+  // 16 音を鳴らし続け、もう一度押すと止める
+  const polyButton = byId<HTMLButtonElement>('poly-test');
+  let polyIds: number[] = [];
+  polyButton.addEventListener('click', () => {
+    wake();
+    if (polyIds.length > 0) {
+      for (const id of polyIds) engine.noteOff(id);
+      polyIds = [];
+      polyButton.textContent = `${MAX_VOICES} 音を鳴らす`;
+      return;
+    }
+    // C3 から 2 半音おきに、2 オクターブ半に収める
+    polyIds = Array.from({ length: MAX_VOICES }, (_, i) =>
+      engine.noteOn(KEYBOARD_PROGRAM, POLY_TEST_BASE + i * 2, { pan: pan() }),
+    );
+    polyButton.textContent = `${MAX_VOICES} 音を止める`;
+  });
+  polyButton.textContent = `${MAX_VOICES} 音を鳴らす`;
+
+  // リズム：メインスレッドから先読みして、サンプル時刻付きで送る（spec §2.2）
+  const rhythmButton = byId<HTMLButtonElement>('rhythm');
+  let rhythmTimer: number | undefined;
+  let nextBar = 0;
+  const barFrames = (60 / RHYTHM_BPM) * 4 * context.sampleRate;
+  const scheduleAhead = () => {
+    const now = context.currentTime * context.sampleRate;
+    nextBar = catchUpBar(nextBar, now, barFrames);
+    const horizon = now + RHYTHM_LOOKAHEAD_SEC * context.sampleRate;
+    while (nextBar < horizon) {
+      for (const { time, program } of scheduleBar(nextBar, context.sampleRate, RHYTHM_BPM)) {
+        engine.noteOn(program, 60, { pan: pan(), time });
+      }
+      nextBar += barFrames;
+    }
+  };
+  rhythmButton.addEventListener('click', () => {
+    wake();
+    if (rhythmTimer !== undefined) {
+      window.clearInterval(rhythmTimer);
+      rhythmTimer = undefined;
+      rhythmButton.textContent = 'リズムを鳴らす';
+      return;
+    }
+    nextBar = Math.round((context.currentTime + 0.05) * context.sampleRate);
+    scheduleAhead();
+    rhythmTimer = window.setInterval(scheduleAhead, RHYTHM_TICK_MS);
+    rhythmButton.textContent = 'リズムを止める';
+  });
+
+  const loadText = byId('load');
+  engine.onLoad((report) => {
+    loadText.textContent = formatLoad(report);
+  });
+  byId<HTMLInputElement>('load-toggle').addEventListener('change', (e) => {
+    const enabled = (e.target as HTMLInputElement).checked;
+    engine.setLoadReport(enabled);
+    loadText.hidden = !enabled;
+    if (enabled) loadText.textContent = '計測中…（1 秒ごとに更新）';
   });
 
   byId('octave-down').addEventListener('click', () => {
@@ -164,10 +307,13 @@ function setup(engine: FmEngine, context: AudioContext): void {
     if (e.repeat) return;
     press(`focus:${target.dataset.note}`, Number(target.dataset.note));
   });
-  keyboard.addEventListener('keyup', (e) => {
-    const target = (e.target as HTMLElement).closest<HTMLElement>('.key');
-    if (!target || !isActivationKey(e.key)) return;
-    release(`focus:${target.dataset.note}`);
+  // 押している間に Tab でフォーカスが別の鍵や鍵盤の外へ移っても止まるよう、
+  // 離した時点のフォーカス先ではなく、押している focus: の音をすべて離す
+  window.addEventListener('keyup', (e) => {
+    if (!isActivationKey(e.key)) return;
+    for (const id of tracker.releaseMatching('focus:')) engine.noteOff(id);
+    for (const key of [...heldNotes.keys()]) if (key.startsWith('focus:')) heldNotes.delete(key);
+    highlight();
   });
   // スクリーンリーダー等が pointerdown/keydown を経由せず直接発火する click（AT 操作）。
   // マウス/タッチの click（detail >= 1）や、上の keydown/keyup で処理済みの Enter/Space による
@@ -223,12 +369,15 @@ byId('start').addEventListener('click', async () => {
     context = new AudioContext();
     void context.resume();
     const engine = await FmEngine.create(context);
+    engine.node.connect(context.destination);
     if (new URLSearchParams(location.search).has('debug')) {
-      const analyser = context.createAnalyser();
-      engine.node.connect(analyser).connect(context.destination);
-      exposeDebug(analyser);
-    } else {
-      engine.node.connect(context.destination);
+      const splitter = context.createChannelSplitter(2);
+      const left = context.createAnalyser();
+      const right = context.createAnalyser();
+      engine.node.connect(splitter);
+      splitter.connect(left, 0);
+      splitter.connect(right, 1);
+      exposeDebug(left, right);
     }
     await context.resume();
     setup(engine, context);

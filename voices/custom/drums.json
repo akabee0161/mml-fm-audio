@@ -1,0 +1,374 @@
+[
+  {
+    "id": 128,
+    "name": "bd",
+    "kind": "drum",
+    "fm": {
+      "voice": {
+        "id": null,
+        "name": "bd body",
+        "kind": "fm",
+        "bo": 0,
+        "alg": 1,
+        "lfo": 0,
+        "ops": [
+          {
+            "wave": 0,
+            "mul": 1,
+            "dt": 0,
+            "tl": 0,
+            "ar": 15,
+            "dr": 9,
+            "sl": 15,
+            "sr": 0,
+            "rr": 9,
+            "ksl": 0,
+            "ksr": 0,
+            "fb": 0,
+            "am": 0,
+            "amDepth": 0,
+            "vib": 0,
+            "vibDepth": 0,
+            "xof": 0
+          },
+          {
+            "wave": 0,
+            "mul": 1,
+            "dt": 0,
+            "tl": 63,
+            "ar": 15,
+            "dr": 9,
+            "sl": 15,
+            "sr": 0,
+            "rr": 9,
+            "ksl": 0,
+            "ksr": 0,
+            "fb": 0,
+            "am": 0,
+            "amDepth": 0,
+            "vib": 0,
+            "vibDepth": 0,
+            "xof": 0
+          }
+        ]
+      },
+      "note": 36,
+      "level": 1
+    },
+    "pitch": {
+      "fromSemitone": 24,
+      "toSemitone": 0,
+      "decayMs": 30
+    },
+    "noise": {
+      "level": 0.15,
+      "ar": 15,
+      "dr": 14,
+      "sl": 15,
+      "rr": 14,
+      "color": "white"
+    }
+  },
+  {
+    "id": 129,
+    "name": "sd",
+    "kind": "drum",
+    "fm": {
+      "voice": {
+        "id": null,
+        "name": "sd body",
+        "kind": "fm",
+        "bo": 0,
+        "alg": 1,
+        "lfo": 0,
+        "ops": [
+          {
+            "wave": 0,
+            "mul": 1,
+            "dt": 0,
+            "tl": 0,
+            "ar": 15,
+            "dr": 11,
+            "sl": 15,
+            "sr": 0,
+            "rr": 11,
+            "ksl": 0,
+            "ksr": 0,
+            "fb": 0,
+            "am": 0,
+            "amDepth": 0,
+            "vib": 0,
+            "vibDepth": 0,
+            "xof": 0
+          },
+          {
+            "wave": 0,
+            "mul": 1,
+            "dt": 0,
+            "tl": 63,
+            "ar": 15,
+            "dr": 11,
+            "sl": 15,
+            "sr": 0,
+            "rr": 11,
+            "ksl": 0,
+            "ksr": 0,
+            "fb": 0,
+            "am": 0,
+            "amDepth": 0,
+            "vib": 0,
+            "vibDepth": 0,
+            "xof": 0
+          }
+        ]
+      },
+      "note": 50,
+      "level": 0.6
+    },
+    "pitch": {
+      "fromSemitone": 7,
+      "toSemitone": 0,
+      "decayMs": 20
+    },
+    "noise": {
+      "level": 0.8,
+      "ar": 15,
+      "dr": 11,
+      "sl": 15,
+      "rr": 11,
+      "color": "white"
+    }
+  },
+  {
+    "id": 130,
+    "name": "ch",
+    "kind": "drum",
+    "noise": {
+      "level": 0.6,
+      "ar": 15,
+      "dr": 13,
+      "sl": 15,
+      "rr": 13,
+      "color": "white"
+    }
+  },
+  {
+    "id": 131,
+    "name": "oh",
+    "kind": "drum",
+    "noise": {
+      "level": 0.5,
+      "ar": 15,
+      "dr": 10,
+      "sl": 15,
+      "rr": 10,
+      "color": "white"
+    }
+  },
+  {
+    "id": 132,
+    "name": "cy",
+    "kind": "drum",
+    "fm": {
+      "voice": {
+        "id": null,
+        "name": "cy metal",
+        "kind": "fm",
+        "bo": 0,
+        "alg": 0,
+        "lfo": 0,
+        "ops": [
+          {
+            "wave": 0,
+            "mul": 7,
+            "dt": 0,
+            "tl": 10,
+            "ar": 15,
+            "dr": 8,
+            "sl": 15,
+            "sr": 0,
+            "rr": 8,
+            "ksl": 0,
+            "ksr": 0,
+            "fb": 5,
+            "am": 0,
+            "amDepth": 0,
+            "vib": 0,
+            "vibDepth": 0,
+            "xof": 0
+          },
+          {
+            "wave": 0,
+            "mul": 2,
+            "dt": 0,
+            "tl": 0,
+            "ar": 15,
+            "dr": 8,
+            "sl": 15,
+            "sr": 0,
+            "rr": 8,
+            "ksl": 0,
+            "ksr": 0,
+            "fb": 0,
+            "am": 0,
+            "amDepth": 0,
+            "vib": 0,
+            "vibDepth": 0,
+            "xof": 0
+          }
+        ]
+      },
+      "note": 84,
+      "level": 0.25
+    },
+    "noise": {
+      "level": 0.5,
+      "ar": 15,
+      "dr": 8,
+      "sl": 15,
+      "rr": 8,
+      "color": "white"
+    }
+  },
+  {
+    "id": 133,
+    "name": "lt",
+    "kind": "drum",
+    "fm": {
+      "voice": {
+        "id": null,
+        "name": "lt body",
+        "kind": "fm",
+        "bo": 0,
+        "alg": 1,
+        "lfo": 0,
+        "ops": [
+          {
+            "wave": 0,
+            "mul": 1,
+            "dt": 0,
+            "tl": 0,
+            "ar": 15,
+            "dr": 9,
+            "sl": 15,
+            "sr": 0,
+            "rr": 9,
+            "ksl": 0,
+            "ksr": 0,
+            "fb": 0,
+            "am": 0,
+            "amDepth": 0,
+            "vib": 0,
+            "vibDepth": 0,
+            "xof": 0
+          },
+          {
+            "wave": 0,
+            "mul": 1,
+            "dt": 0,
+            "tl": 63,
+            "ar": 15,
+            "dr": 9,
+            "sl": 15,
+            "sr": 0,
+            "rr": 9,
+            "ksl": 0,
+            "ksr": 0,
+            "fb": 0,
+            "am": 0,
+            "amDepth": 0,
+            "vib": 0,
+            "vibDepth": 0,
+            "xof": 0
+          }
+        ]
+      },
+      "note": 45,
+      "level": 1
+    },
+    "pitch": {
+      "fromSemitone": 7,
+      "toSemitone": 0,
+      "decayMs": 60
+    }
+  },
+  {
+    "id": 134,
+    "name": "ht",
+    "kind": "drum",
+    "fm": {
+      "voice": {
+        "id": null,
+        "name": "ht body",
+        "kind": "fm",
+        "bo": 0,
+        "alg": 1,
+        "lfo": 0,
+        "ops": [
+          {
+            "wave": 0,
+            "mul": 1,
+            "dt": 0,
+            "tl": 0,
+            "ar": 15,
+            "dr": 9,
+            "sl": 15,
+            "sr": 0,
+            "rr": 9,
+            "ksl": 0,
+            "ksr": 0,
+            "fb": 0,
+            "am": 0,
+            "amDepth": 0,
+            "vib": 0,
+            "vibDepth": 0,
+            "xof": 0
+          },
+          {
+            "wave": 0,
+            "mul": 1,
+            "dt": 0,
+            "tl": 63,
+            "ar": 15,
+            "dr": 9,
+            "sl": 15,
+            "sr": 0,
+            "rr": 9,
+            "ksl": 0,
+            "ksr": 0,
+            "fb": 0,
+            "am": 0,
+            "amDepth": 0,
+            "vib": 0,
+            "vibDepth": 0,
+            "xof": 0
+          }
+        ]
+      },
+      "note": 52,
+      "level": 1
+    },
+    "pitch": {
+      "fromSemitone": 7,
+      "toSemitone": 0,
+      "decayMs": 50
+    }
+  },
+  {
+    "id": 135,
+    "name": "cp",
+    "kind": "drum",
+    "noise": {
+      "level": 0.7,
+      "ar": 15,
+      "dr": 13,
+      "sl": 15,
+      "rr": 13,
+      "color": "white",
+      "repeat": {
+        "count": 3,
+        "intervalMs": 10
+      }
+    }
+  }
+]

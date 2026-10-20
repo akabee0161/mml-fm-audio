@@ -22,8 +22,21 @@
           <button id="octave-up" type="button">オクターブ ＋</button>
         </div>
         <div id="keyboard" class="keyboard"></div>
-        <p class="hint">PC では a〜k が白鍵、w e t y u が黒鍵です。</p>
+        <p class="hint">PC では a〜k が白鍵、w e t y u が黒鍵です。複数の鍵を同時に押すと和音になります。</p>
+        <div class="row">
+          <button id="poly-test" type="button"></button>
+          <label>パン <input id="pan" type="range" min="0" max="127" step="1" value="64" /> <span id="pan-value">64</span></label>
+        </div>
+        <p class="hint">16 音を鳴らしたまま鍵盤を押すと 17 音目になり、最も古い音が止まります。パンは次に鳴らす音から効きます（0 が左、64 が中央、127 が右）。</p>
         <ul id="warnings" class="warnings"></ul>
+        <h2>ドラム</h2>
+        <div id="drums" class="drums"></div>
+        <div class="row">
+          <button id="rhythm" type="button">リズムを鳴らす</button>
+        </div>
+        <h2>負荷</h2>
+        <label><input id="load-toggle" type="checkbox" /> 負荷を表示</label>
+        <pre id="load" class="load" hidden></pre>
         <h2>音色 JSON を貼り付ける</h2>
         <textarea id="voice-json" rows="8" spellcheck="false"></textarea>
         <button id="load-json" type="button">読み込む</button>

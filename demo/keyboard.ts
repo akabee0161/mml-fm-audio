@@ -65,29 +65,46 @@ export function parseVoiceJson(text: string): ValidationResult {
 }
 
 /**
- * 1 ボイスなので、鳴っている音は 1 つ。どのキー（PC のキーや画面のポインター）が
- * 今の音を鳴らしたかを覚え、そのキーが離されたときだけキーオフする。
+ * 押しているキー（PC のキーや画面のポインター）ごとに、鳴らした音の ID を覚える。
+ * 離したキーの音だけをキーオフできるようにして、和音を弾けるようにする。
  */
-export class MonoNoteTracker {
-  private current: string | null = null;
+export class PolyNoteTracker {
+  private readonly held = new Map<string, number | null>();
 
-  /** key が note を鳴らした。鳴らす note を返す */
-  press(key: string, note: number): number {
-    this.current = key;
-    return note;
-  }
-
-  /** key が離された。キーオフすべきなら true */
-  release(key: string): boolean {
-    if (this.current !== key) return false;
-    this.current = null;
+  /** key を押し始めた。すでに押されていれば false（鳴らさない） */
+  press(key: string): boolean {
+    if (this.held.has(key)) return false;
+    this.held.set(key, null);
     return true;
   }
 
-  /** 鳴っている音があれば（どのキーが押したかに関わらず）止める。キーオフすべきなら true */
-  releaseAll(): boolean {
-    if (this.current === null) return false;
-    this.current = null;
-    return true;
+  /** press が true だった key に、鳴らした音の ID を結び付ける */
+  bind(key: string, id: number): void {
+    if (this.held.has(key)) this.held.set(key, id);
+  }
+
+  /** 離した key の ID。なければ undefined */
+  release(key: string): number | undefined {
+    const id = this.held.get(key);
+    this.held.delete(key);
+    return id ?? undefined;
+  }
+
+  /** prefix で始まる key をすべて離し、その ID を返す */
+  releaseMatching(prefix: string): number[] {
+    const ids: number[] = [];
+    for (const [key, id] of this.held) {
+      if (!key.startsWith(prefix)) continue;
+      this.held.delete(key);
+      if (id !== null) ids.push(id);
+    }
+    return ids;
+  }
+
+  /** 押されている全 key を離し、その ID を返す */
+  releaseAll(): number[] {
+    const ids = [...this.held.values()].filter((id): id is number => id !== null);
+    this.held.clear();
+    return ids;
   }
 }

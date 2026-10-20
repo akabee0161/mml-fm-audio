@@ -1,8 +1,12 @@
 import { FmEngine } from './index';
-import type { EngineMessage } from './messages';
+import type { EngineMessage, EngineReply } from './messages';
+import type { FmVoice } from './voiceData';
 
 class FakeAudioWorkletNode {
-  readonly port = { postMessage: (message: EngineMessage) => this.sent.push(message), onmessage: null as unknown };
+  readonly port = {
+    postMessage: (message: EngineMessage) => this.sent.push(message),
+    onmessage: null as ((event: { data: EngineReply }) => void) | null,
+  };
   readonly sent: EngineMessage[] = [];
   constructor(
     public context: unknown,
@@ -17,11 +21,12 @@ const fakeContext = {
   sampleRate: 48000,
 };
 
-describe('FmEngine.noteOn / noteOff の引数検証', () => {
-  let originalAudioWorkletNode: unknown;
-  let node: FakeAudioWorkletNode;
+const timbre = { id: 0, name: 'T', kind: 'fm', bo: 0, alg: 1, lfo: 0, ops: [] } as unknown as FmVoice;
 
-  beforeEach(async () => {
+describe('FmEngine', () => {
+  let originalAudioWorkletNode: unknown;
+
+  beforeEach(() => {
     originalAudioWorkletNode = (globalThis as Record<string, unknown>).AudioWorkletNode;
     (globalThis as Record<string, unknown>).AudioWorkletNode = FakeAudioWorkletNode;
   });
@@ -35,35 +40,95 @@ describe('FmEngine.noteOn / noteOff の引数検証', () => {
     return { engine, node: engine.node as unknown as FakeAudioWorkletNode };
   }
 
-  it('noteOn: note が NaN なら RangeError を投げ、何も送らない', async () => {
+  it('noteOn は 1 から順に ID を振って返し、pan の既定は 64', async () => {
     const { engine, node } = await createEngine();
-    expect(() => engine.noteOn(NaN, 0)).toThrow(RangeError);
-    expect(() => engine.noteOn(NaN, 0)).toThrow(/noteOn/);
+    expect(engine.noteOn(0, 60, { time: 100 })).toBe(1);
+    expect(engine.noteOn(128, 36, { pan: 10, time: 200 })).toBe(2);
+    expect(node.sent).toEqual([
+      { type: 'noteOn', id: 1, program: 0, note: 60, pan: 64, time: 100 },
+      { type: 'noteOn', id: 2, program: 128, note: 36, pan: 10, time: 200 },
+    ]);
+  });
+
+  it('noteOff は ID を送る', async () => {
+    const { engine, node } = await createEngine();
+    engine.noteOff(3, 100);
+    expect(node.sent).toEqual([{ type: 'noteOff', id: 3, time: 100 }]);
+  });
+
+  it('registerVoice は program と音色を送る', async () => {
+    const { engine, node } = await createEngine();
+    engine.registerVoice(5, timbre);
+    expect(node.sent).toEqual([{ type: 'registerVoice', program: 5, voice: timbre }]);
+  });
+
+  it.each([
+    ['note が NaN', () => [0, NaN, {}]],
+    ['note が 128', () => [0, 128, {}]],
+    ['note が −1', () => [0, -1, {}]],
+    ['program が 256', () => [256, 60, {}]],
+    ['program が 1.5', () => [1.5, 60, {}]],
+    ['pan が 128', () => [0, 60, { pan: 128 }]],
+    ['pan が 0.5', () => [0, 60, { pan: 0.5 }]],
+    ['time が Infinity', () => [0, 60, { time: Infinity }]],
+  ] as Array<[string, () => [number, number, { pan?: number; time?: number }]]>)('noteOn: %s なら RangeError を投げ、何も送らない', async (_label, args) => {
+    const { engine, node } = await createEngine();
+    const [program, note, options] = args();
+    expect(() => engine.noteOn(program, note, options)).toThrow(RangeError);
+    expect(() => engine.noteOn(program, note, options)).toThrow(/noteOn/);
     expect(node.sent).toHaveLength(0);
   });
 
-  it('noteOn: time が Infinity なら RangeError を投げ、何も送らない', async () => {
+  it('noteOff: id が整数でない・time が NaN なら RangeError を投げ、何も送らない', async () => {
     const { engine, node } = await createEngine();
-    expect(() => engine.noteOn(60, Infinity)).toThrow(RangeError);
+    expect(() => engine.noteOff(1.5)).toThrow(RangeError);
+    expect(() => engine.noteOff(1, NaN)).toThrow(/noteOff/);
     expect(node.sent).toHaveLength(0);
   });
 
-  it('noteOff: time が NaN なら RangeError を投げ、何も送らない', async () => {
+  it('registerVoice: program が範囲外なら RangeError', async () => {
     const { engine, node } = await createEngine();
-    expect(() => engine.noteOff(NaN)).toThrow(RangeError);
-    expect(() => engine.noteOff(NaN)).toThrow(/noteOff/);
+    expect(() => engine.registerVoice(-1, timbre)).toThrow(RangeError);
     expect(node.sent).toHaveLength(0);
   });
 
-  it('noteOn: 有限の値なら期待通りのメッセージを送る', async () => {
+  it('setLoadReport を送り、load の返信を onLoad に渡す', async () => {
     const { engine, node } = await createEngine();
-    engine.noteOn(60, 100);
-    expect(node.sent).toEqual([{ type: 'noteOn', note: 60, time: 100 }]);
+    const reports: unknown[] = [];
+    engine.onLoad((report) => reports.push(report));
+    engine.setLoadReport(true);
+    expect(node.sent).toEqual([{ type: 'setLoadReport', enabled: true }]);
+    const report = { avgMs: 1, maxMs: 2, blockMs: 2.67, percent: 37, maxVoices: 16, clock: 'performance' as const };
+    node.port.onmessage!({ data: { type: 'load', report } });
+    expect(reports).toEqual([report]);
   });
 
-  it('noteOff: 有限の値なら期待通りのメッセージを送る', async () => {
+  it('warning の返信を onWarning に渡す', async () => {
     const { engine, node } = await createEngine();
-    engine.noteOff(100);
-    expect(node.sent).toEqual([{ type: 'noteOff', time: 100 }]);
+    const warnings: string[] = [];
+    engine.onWarning((m) => warnings.push(m));
+    node.port.onmessage!({ data: { type: 'warning', message: 'x' } });
+    expect(warnings).toEqual(['x']);
+  });
+
+  it('小数の time はサンプル単位に丸めて送る', async () => {
+    const { engine, node } = await createEngine();
+    const id = engine.noteOn(0, 60, { time: 10.5 });
+    engine.noteOff(id, 20.4);
+    expect(node.sent).toEqual([
+      { type: 'noteOn', id, program: 0, note: 60, pan: 64, time: 11 },
+      { type: 'noteOff', id, time: 20 },
+    ]);
+  });
+
+  it('registerVoice: FM 音色は 0〜127、ドラムは 128〜255 にしか登録できない', async () => {
+    const { engine, node } = await createEngine();
+    const drum = { id: 128, name: 'bd', kind: 'drum' } as const;
+    expect(() => engine.registerVoice(200, timbre)).toThrow(RangeError);
+    expect(() => engine.registerVoice(0, drum)).toThrow(/registerVoice/);
+    expect(node.sent).toHaveLength(0);
+    engine.registerVoice(127, timbre);
+    engine.registerVoice(255, drum);
+    expect(node.sent).toHaveLength(2);
   });
 });

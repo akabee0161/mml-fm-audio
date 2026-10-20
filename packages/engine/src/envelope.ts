@@ -1,6 +1,9 @@
 import { SILENT_DB, SL_DB_PER_STEP } from './tables';
 import type { FmOperator } from './voiceData';
 
+/** エンベロープに要る項目。FM のオペレーターのほか、ドラムのノイズ部からも渡す */
+export type EnvelopeParams = Pick<FmOperator, 'ar' | 'dr' | 'sl' | 'sr' | 'rr' | 'ksr' | 'xof'>;
+
 export type EnvelopePhase = 'attack' | 'decay' | 'sustain' | 'release' | 'off';
 
 /** レート 15 の減衰速度（暫定） */
@@ -42,7 +45,7 @@ export class Envelope {
 
   constructor(private readonly sampleRate: number) {}
 
-  keyOn(op: FmOperator, note: number): void {
+  keyOn(op: EnvelopeParams, note: number): void {
     const rate = (r: number) => effectiveRate(r, op.ksr, note);
     const perSample = (r: number) => decayDbPerSec(rate(r)) / this.sampleRate;
 

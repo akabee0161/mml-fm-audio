@@ -1,6 +1,7 @@
 /** サンプル時刻つきのイベントを時刻順に保持する */
 export class EventQueue<E extends { time: number }> {
   private readonly items: E[] = [];
+  private readonly due: Array<{ offset: number; event: E }> = [];
 
   /** 時刻順に入れる。同じ時刻は入れた順を保つ */
   push(event: E): void {
@@ -9,13 +10,18 @@ export class EventQueue<E extends { time: number }> {
     this.items.splice(i, 0, event);
   }
 
-  /** [blockStart, blockStart + blockLength) より前のイベントを取り出す。過去のものは offset 0 */
-  takeDue(blockStart: number, blockLength: number): Array<{ offset: number; event: E }> {
+  /**
+   * [blockStart, blockStart + blockLength) より前のイベントを取り出す。過去のものは offset 0。
+   * 音声処理のスレッドでブロックごとに呼ぶため、返す配列は使い回す（次に呼ぶまでに読み終えること）
+   */
+  takeDue(blockStart: number, blockLength: number): readonly { offset: number; event: E }[] {
     const end = blockStart + blockLength;
-    const due: Array<{ offset: number; event: E }> = [];
+    const due = this.due;
+    due.length = 0;
     while (this.items.length > 0 && this.items[0]!.time < end) {
       const event = this.items.shift()!;
-      due.push({ offset: Math.max(0, event.time - blockStart), event });
+      // offset は配列の添字になるので整数にする
+      due.push({ offset: Math.max(0, Math.floor(event.time - blockStart)), event });
     }
     return due;
   }

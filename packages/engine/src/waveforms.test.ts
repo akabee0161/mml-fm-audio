@@ -1,5 +1,5 @@
 import { TABLE_SIZE, WAVE_TABLES, isDefinedWave, voiceWarnings, waveValue } from './waveforms';
-import type { FmOperator, FmVoice } from './voiceData';
+import type { DrumVoice, FmOperator, FmVoice } from './voiceData';
 
 const S = Math.SQRT1_2; // sin(π/4)
 
@@ -71,5 +71,16 @@ describe('isDefinedWave / voiceWarnings', () => {
     });
     const voice: FmVoice = { id: null, name: 'T', kind: 'fm', bo: 0, alg: 1, lfo: 0, ops: [op(0), op(23), op(31), op(15)] };
     expect(voiceWarnings(voice)).toEqual(['T の ops[1].wave: 波形 23 は未定義のため、サインで代わりに鳴らします']);
+  });
+
+  it('ドラムは FM 部の音色の未定義波形を警告し、FM 部がなければ何も言わない', () => {
+    const op = (wave: number): FmOperator => ({
+      wave, mul: 1, dt: 0, tl: 0, ar: 15, dr: 1, sl: 15, sr: 0, rr: 15,
+      ksl: 0, ksr: 0, fb: 0, am: 0, amDepth: 0, vib: 0, vibDepth: 0, xof: 0,
+    });
+    const body: FmVoice = { id: null, name: 'B', kind: 'fm', bo: 0, alg: 1, lfo: 0, ops: [op(23), op(0)] };
+    const drum: DrumVoice = { id: 128, name: 'bd', kind: 'drum', fm: { voice: body, note: 36, level: 1 } };
+    expect(voiceWarnings(drum)).toEqual(['B の ops[0].wave: 波形 23 は未定義のため、サインで代わりに鳴らします']);
+    expect(voiceWarnings({ id: 130, name: 'ch', kind: 'drum' })).toEqual([]);
   });
 });
