@@ -114,4 +114,17 @@ describe('PolyNoteTracker', () => {
     expect(t.releaseAll()).toEqual([]);
     expect(t.release('a')).toBeUndefined();
   });
+
+  it('releaseMatching は先頭が一致するキーだけを離し、その ID を返す', () => {
+    const t = new PolyNoteTracker();
+    t.press('focus:60');
+    t.bind('focus:60', 1);
+    t.press('focus:62');
+    t.bind('focus:62', 2);
+    t.press('key:a');
+    t.bind('key:a', 3);
+    expect(t.releaseMatching('focus:').sort()).toEqual([1, 2]);
+    expect(t.release('focus:60')).toBeUndefined();
+    expect(t.release('key:a')).toBe(3);
+  });
 });

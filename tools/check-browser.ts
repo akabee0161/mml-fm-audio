@@ -63,6 +63,19 @@ try {
   check(afterBlur < 0.001, `ウィンドウのフォーカスが外れると、押したままの音が止まる（${afterBlur.toFixed(4)}）`);
   for (const key of ['a', 'd', 'g']) await page.keyboard.up(key);
 
+  await page.focus('#keyboard .key');
+  await page.keyboard.down('Enter');
+  await page.waitForTimeout(200);
+  const focused = await peak();
+  await page.keyboard.press('Tab');
+  await page.keyboard.up('Enter');
+  await waitSilent();
+  const afterTab = await peak();
+  check(
+    focused > 0.01 && afterTab < 0.001,
+    `画面の鍵を Enter で押したまま Tab でフォーカスを移しても、離せば止まる（${focused.toFixed(3)} → ${afterTab.toFixed(4)}）`,
+  );
+
   await setPan(0);
   await page.keyboard.down('a');
   await page.waitForTimeout(300);

@@ -307,10 +307,13 @@ function setup(engine: FmEngine, context: AudioContext): void {
     if (e.repeat) return;
     press(`focus:${target.dataset.note}`, Number(target.dataset.note));
   });
-  keyboard.addEventListener('keyup', (e) => {
-    const target = (e.target as HTMLElement).closest<HTMLElement>('.key');
-    if (!target || !isActivationKey(e.key)) return;
-    release(`focus:${target.dataset.note}`);
+  // 押している間に Tab でフォーカスが別の鍵や鍵盤の外へ移っても止まるよう、
+  // 離した時点のフォーカス先ではなく、押している focus: の音をすべて離す
+  window.addEventListener('keyup', (e) => {
+    if (!isActivationKey(e.key)) return;
+    for (const id of tracker.releaseMatching('focus:')) engine.noteOff(id);
+    for (const key of [...heldNotes.keys()]) if (key.startsWith('focus:')) heldNotes.delete(key);
+    highlight();
   });
   // スクリーンリーダー等が pointerdown/keydown を経由せず直接発火する click（AT 操作）。
   // マウス/タッチの click（detail >= 1）や、上の keydown/keyup で処理済みの Enter/Space による

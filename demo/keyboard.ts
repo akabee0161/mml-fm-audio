@@ -90,6 +90,17 @@ export class PolyNoteTracker {
     return id ?? undefined;
   }
 
+  /** prefix で始まる key をすべて離し、その ID を返す */
+  releaseMatching(prefix: string): number[] {
+    const ids: number[] = [];
+    for (const [key, id] of this.held) {
+      if (!key.startsWith(prefix)) continue;
+      this.held.delete(key);
+      if (id !== null) ids.push(id);
+    }
+    return ids;
+  }
+
   /** 押されている全 key を離し、その ID を返す */
   releaseAll(): number[] {
     const ids = [...this.held.values()].filter((id): id is number => id !== null);
