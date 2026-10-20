@@ -110,4 +110,25 @@ describe('FmEngine', () => {
     node.port.onmessage!({ data: { type: 'warning', message: 'x' } });
     expect(warnings).toEqual(['x']);
   });
+
+  it('小数の time はサンプル単位に丸めて送る', async () => {
+    const { engine, node } = await createEngine();
+    const id = engine.noteOn(0, 60, { time: 10.5 });
+    engine.noteOff(id, 20.4);
+    expect(node.sent).toEqual([
+      { type: 'noteOn', id, program: 0, note: 60, pan: 64, time: 11 },
+      { type: 'noteOff', id, time: 20 },
+    ]);
+  });
+
+  it('registerVoice: FM 音色は 0〜127、ドラムは 128〜255 にしか登録できない', async () => {
+    const { engine, node } = await createEngine();
+    const drum = { id: 128, name: 'bd', kind: 'drum' } as const;
+    expect(() => engine.registerVoice(200, timbre)).toThrow(RangeError);
+    expect(() => engine.registerVoice(0, drum)).toThrow(/registerVoice/);
+    expect(node.sent).toHaveLength(0);
+    engine.registerVoice(127, timbre);
+    engine.registerVoice(255, drum);
+    expect(node.sent).toHaveLength(2);
+  });
 });

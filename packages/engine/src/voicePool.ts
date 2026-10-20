@@ -55,7 +55,9 @@ export class VoicePool {
   }
 
   get activeCount(): number {
-    return this.voices.reduce((n, v) => n + (v.active ? 1 : 0), 0);
+    let count = 0;
+    for (const voice of this.voices) if (voice.active) count++;
+    return count;
   }
 
   /** 空いているボイス。なければ最も古く鳴らしたボイスを止めて返す */

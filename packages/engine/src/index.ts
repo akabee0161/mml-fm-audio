@@ -55,13 +55,16 @@ export class FmEngine {
    * 0〜127 は FM 音色、128〜255 はドラム（spec §3.3）。鳴っている音は前の音色のまま鳴り終える
    */
   registerVoice(program: number, voice: AnyVoice): void {
-    if (!isIntIn(program, 0, 255)) {
-      throw new RangeError(`registerVoice: program は 0〜255 の整数にしてください（program=${program}）`);
+    const [min, max] = voice.kind === 'fm' ? [0, 127] : [128, 255];
+    if (!isIntIn(program, min, max)) {
+      throw new RangeError(
+        `registerVoice: ${voice.kind === 'fm' ? 'FM 音色' : 'ドラム'}の program は ${min}〜${max} の整数にしてください（program=${program}）`,
+      );
     }
     this.send({ type: 'registerVoice', program, voice });
   }
 
-  /** program の音色で note を鳴らし、音の ID を返す。pan は 0〜127（既定 64 が中央） */
+  /** program の音色で note を鳴らし、音の ID を返す。pan は 0〜127（既定 64 が中央）。time はサンプル番号で、小数は丸める */
   noteOn(program: number, note: number, options: { pan?: number; time?: number } = {}): number {
     const { pan = CENTER_PAN, time = this.nowFrame() } = options;
     if (!isIntIn(program, 0, 255) || !isIntIn(note, 0, 127) || !isIntIn(pan, 0, 127) || !Number.isFinite(time)) {
@@ -70,7 +73,7 @@ export class FmEngine {
       );
     }
     const id = this.nextId++;
-    this.send({ type: 'noteOn', id, program, note, pan, time });
+    this.send({ type: 'noteOn', id, program, note, pan, time: Math.round(time) });
     return id;
   }
 
@@ -79,7 +82,7 @@ export class FmEngine {
     if (!Number.isInteger(id) || !Number.isFinite(time)) {
       throw new RangeError(`noteOff: id は整数、time は有限の数値にしてください（id=${id}, time=${time}）`);
     }
-    this.send({ type: 'noteOff', id, time });
+    this.send({ type: 'noteOff', id, time: Math.round(time) });
   }
 
   setQuantize(enabled: boolean): void {

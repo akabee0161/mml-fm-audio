@@ -1,4 +1,4 @@
-import { DRUM_PROGRAMS, RHYTHM_PATTERN, scheduleBar } from './rhythm';
+import { DRUM_PROGRAMS, RHYTHM_PATTERN, catchUpBar, scheduleBar } from './rhythm';
 
 describe('リズム', () => {
   it('ドラムの番号は 128〜135（設計書 §5 の順）', () => {
@@ -20,5 +20,15 @@ describe('リズム', () => {
     RHYTHM_PATTERN.forEach((step, i) => {
       expect(events[i]).toEqual({ time: 1000 + step.tick * 6000, program: DRUM_PROGRAMS[step.drum] });
     });
+  });
+});
+
+describe('catchUpBar', () => {
+  it('次の小節頭が今より後なら、そのまま', () => {
+    expect(catchUpBar(1000, 500, 96000)).toBe(1000);
+  });
+
+  it('タブが裏にあって小節頭を過ぎていたら、今より後の小節頭まで飛ばす（逃した小節は送らない）', () => {
+    expect(catchUpBar(1000, 1000 + 96000 * 3 + 5, 96000)).toBe(1000 + 96000 * 4);
   });
 });

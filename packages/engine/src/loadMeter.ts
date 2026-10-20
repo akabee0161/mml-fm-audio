@@ -50,11 +50,16 @@ export class LoadMeter {
       maxVoices: this.maxVoices,
       clock: this.clock,
     };
+    this.reset();
+    return report;
+  }
+
+  /** 途中までの集計を捨てる（計測をオンにし直したとき） */
+  reset(): void {
     this.frames = 0;
     this.blocks = 0;
     this.totalMs = 0;
     this.maxMs = 0;
     this.maxVoices = 0;
-    return report;
   }
 }

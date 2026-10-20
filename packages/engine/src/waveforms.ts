@@ -1,4 +1,4 @@
-import { opCount, type FmVoice } from './voiceData';
+import { opCount, type AnyVoice } from './voiceData';
 
 /** 波形表 1 周期の点数 */
 export const TABLE_SIZE = 1024;
@@ -67,8 +67,10 @@ export const WAVE_TABLES: readonly Float32Array[] = Array.from({ length: 32 }, (
   return table;
 });
 
-/** 音色が使うオペレーターのうち、未定義の波形を指定しているものの警告 */
-export function voiceWarnings(voice: FmVoice): string[] {
+/** 音色が使うオペレーターのうち、未定義の波形を指定しているものの警告。ドラムは FM 部の音色を見る */
+export function voiceWarnings(timbre: AnyVoice): string[] {
+  const voice = timbre.kind === 'fm' ? timbre : timbre.fm?.voice;
+  if (!voice) return [];
   return voice.ops
     .slice(0, opCount(voice.alg))
     .flatMap((op, i) =>

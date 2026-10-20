@@ -15,7 +15,8 @@ export class EventQueue<E extends { time: number }> {
     const due: Array<{ offset: number; event: E }> = [];
     while (this.items.length > 0 && this.items[0]!.time < end) {
       const event = this.items.shift()!;
-      due.push({ offset: Math.max(0, event.time - blockStart), event });
+      // offset は配列の添字になるので整数にする
+      due.push({ offset: Math.max(0, Math.floor(event.time - blockStart)), event });
     }
     return due;
   }

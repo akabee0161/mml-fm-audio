@@ -18,6 +18,8 @@ class FmProcessor extends AudioWorkletProcessor {
   private readonly meter = new LoadMeter(sampleRate, clockKind);
   private quantize = true;
   private loadReport = false;
+  /** 未登録の警告を出した番号 */
+  private readonly warnedPrograms = new Set<number>();
   private left = new Float32Array(128);
   private right = new Float32Array(128);
 
@@ -34,14 +36,15 @@ class FmProcessor extends AudioWorkletProcessor {
     switch (message.type) {
       case 'registerVoice':
         this.pool.register(message.program, message.voice);
-        if (message.voice.kind === 'fm') {
-          for (const warning of voiceWarnings(message.voice)) this.reply({ type: 'warning', message: warning });
-        }
+        this.warnedPrograms.delete(message.program);
+        for (const warning of voiceWarnings(message.voice)) this.reply({ type: 'warning', message: warning });
         break;
       case 'setQuantize':
         this.quantize = message.enabled;
         break;
       case 'setLoadReport':
+        // オンにし直したときに前の途中までの集計が混ざらないよう捨てる
+        if (message.enabled && !this.loadReport) this.meter.reset();
         this.loadReport = message.enabled;
         break;
       case 'noteOn':
@@ -55,7 +58,11 @@ class FmProcessor extends AudioWorkletProcessor {
     if (message.type === 'noteOff') {
       this.pool.noteOff(message.id);
     } else if (!this.pool.noteOn(message.id, message.program, message.note, message.pan)) {
-      this.reply({ type: 'warning', message: `音色 ${message.program} は登録されていません` });
+      // 繰り返し鳴らす曲で警告があふれないよう、番号ごとに 1 回だけ出す（登録し直すまで）
+      if (!this.warnedPrograms.has(message.program)) {
+        this.warnedPrograms.add(message.program);
+        this.reply({ type: 'warning', message: `音色 ${message.program} は登録されていません` });
+      }
     }
   }
 
@@ -83,14 +90,11 @@ class FmProcessor extends AudioWorkletProcessor {
     this.pool.render(left, right, pos, length);
 
     const finish = this.quantize ? quantize16 : clampSample;
-    if (channels.length === 1) {
-      const mono = channels[0]!;
-      for (let i = 0; i < length; i++) mono[i] = finish(((left[i]! + right[i]!) / 2) * MIX_GAIN);
-    } else {
-      channels.forEach((channel, c) => {
-        const source = c === 0 ? left : right;
-        for (let i = 0; i < length; i++) channel[i] = finish(source[i]! * MIX_GAIN);
-      });
+    // ノードは outputChannelCount: [2] で作るので、0 が左、1 が右
+    for (let c = 0; c < channels.length; c++) {
+      const channel = channels[c]!;
+      const source = c === 0 ? left : right;
+      for (let i = 0; i < length; i++) channel[i] = finish(source[i]! * MIX_GAIN);
     }
 
     if (this.loadReport) {

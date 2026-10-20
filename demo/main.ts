@@ -24,7 +24,7 @@ import {
   shiftBase,
 } from './keyboard';
 import { renderParams } from './params';
-import { scheduleBar } from './rhythm';
+import { catchUpBar, scheduleBar } from './rhythm';
 
 declare global {
   interface Window {
@@ -246,7 +246,9 @@ function setup(engine: FmEngine, context: AudioContext): void {
   let nextBar = 0;
   const barFrames = (60 / RHYTHM_BPM) * 4 * context.sampleRate;
   const scheduleAhead = () => {
-    const horizon = (context.currentTime + RHYTHM_LOOKAHEAD_SEC) * context.sampleRate;
+    const now = context.currentTime * context.sampleRate;
+    nextBar = catchUpBar(nextBar, now, barFrames);
+    const horizon = now + RHYTHM_LOOKAHEAD_SEC * context.sampleRate;
     while (nextBar < horizon) {
       for (const { time, program } of scheduleBar(nextBar, context.sampleRate, RHYTHM_BPM)) {
         engine.noteOn(program, 60, { pan: pan(), time });

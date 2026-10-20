@@ -35,3 +35,12 @@ export function scheduleBar(barStart: number, sampleRate: number, bpm: number): 
     program: DRUM_PROGRAMS[step.drum],
   }));
 }
+
+/**
+ * 次に送る小節頭 nextBar が今（now）より前なら、今より後の小節頭まで飛ばす。
+ * タブを裏にすると setInterval が間引かれるため、逃した小節をまとめて送らないようにする
+ */
+export function catchUpBar(nextBar: number, now: number, barFrames: number): number {
+  if (nextBar >= now) return nextBar;
+  return nextBar + Math.ceil((now - nextBar) / barFrames) * barFrames;
+}

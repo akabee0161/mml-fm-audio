@@ -35,7 +35,7 @@ export class Voice {
   private readonly feedbackPrev1 = new Float64Array(4);
   private readonly feedbackPrev2 = new Float64Array(4);
   private readonly outputs = new Float64Array(4);
-  private tables: Float32Array[] = [];
+  private readonly tables: Float32Array[] = [WAVE_TABLES[0]!, WAVE_TABLES[0]!, WAVE_TABLES[0]!, WAVE_TABLES[0]!];
 
   // 音程の降下（ドラム）：半音のずれ = pitchTo + pitchDiff、pitchDiff は毎サンプル pitchDecay 倍
   private pitchTo = 0;
@@ -108,8 +108,11 @@ export class Voice {
 
   /** 出力するオペレーターかノイズ部のどれかが鳴っていれば true */
   get active(): boolean {
+    // 音声処理のスレッドで毎ブロック呼ぶので、クロージャーを作らずに回す
     const alg = this.alg;
-    if (alg && alg.carriers.some((c) => this.envelopes[c]!.phase !== 'off')) return true;
+    if (alg) {
+      for (const c of alg.carriers) if (this.envelopes[c]!.phase !== 'off') return true;
+    }
     return this.noiseEnvelope.phase !== 'off' || this.repeatsLeft > 0;
   }
 
@@ -131,7 +134,6 @@ export class Voice {
     const alg = ALGORITHMS[voice.alg]!;
     this.alg = alg;
     const octavesAboveC4 = Math.max(0, (note - 60) / 12);
-    this.tables = [];
     for (let i = 0; i < alg.opCount; i++) {
       const op = voice.ops[i]!;
       this.phase[i] = 0;
@@ -140,7 +142,7 @@ export class Voice {
       this.increment[i] = operatorFrequency(note, voice.bo, op.mul, op.dt) / this.sampleRate;
       this.staticDb[i] = op.tl * TL_DB_PER_STEP + KSL_DB_PER_OCT[op.ksl]! * octavesAboveC4;
       this.feedbackGain[i] = alg.feedback.includes(i) ? FB_RAD[op.fb]! : 0;
-      this.tables.push(WAVE_TABLES[op.wave]!);
+      this.tables[i] = WAVE_TABLES[op.wave]!;
       this.envelopes[i]!.keyOn(op, note);
     }
   }

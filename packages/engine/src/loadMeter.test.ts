@@ -34,3 +34,15 @@ describe('LoadMeter', () => {
     expect(report!.clock).toBe('date');
   });
 });
+
+describe('LoadMeter.reset', () => {
+  it('途中までの集計を捨てて数え直す', () => {
+    const meter = new LoadMeter(48000, 'performance');
+    for (let i = 0; i < 200; i++) meter.record(9, 128, 16);
+    meter.reset();
+    for (let i = 0; i < 374; i++) expect(meter.record(1, 128, 2)).toBeNull();
+    const report = meter.record(1, 128, 2)!;
+    expect(report.maxMs).toBe(1);
+    expect(report.maxVoices).toBe(2);
+  });
+});
