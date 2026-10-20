@@ -1,5 +1,5 @@
 import {
-  MonoNoteTracker,
+  PolyNoteTracker,
   PC_KEY_OFFSETS,
   isActivationKey,
   isAssistiveClick,
@@ -78,26 +78,40 @@ describe('isAssistiveClick', () => {
   });
 });
 
-describe('MonoNoteTracker', () => {
-  it('押した音を返し、最後に押した音を離したときだけキーオフする', () => {
-    const t = new MonoNoteTracker();
-    expect(t.press('a', 60)).toBe(60);
-    expect(t.press('s', 62)).toBe(62);
-    expect(t.release('a')).toBe(false); // 先に押したキーを離しても 62 は止めない
-    expect(t.release('s')).toBe(true);
+describe('PolyNoteTracker', () => {
+  it('押しているキーごとに音の ID を覚え、離したキーの ID を返す', () => {
+    const t = new PolyNoteTracker();
+    expect(t.press('a')).toBe(true);
+    t.bind('a', 1);
+    expect(t.press('s')).toBe(true);
+    t.bind('s', 2);
+    expect(t.release('a')).toBe(1);
+    expect(t.release('s')).toBe(2);
+  });
+
+  it('押したままのキーをもう一度押しても鳴らさない', () => {
+    const t = new PolyNoteTracker();
+    expect(t.press('a')).toBe(true);
+    t.bind('a', 1);
+    expect(t.press('a')).toBe(false);
+    expect(t.release('a')).toBe(1);
+    expect(t.press('a')).toBe(true); // 離した後は押せる
   });
 
   it('知らないキーを離しても何もしない', () => {
-    const t = new MonoNoteTracker();
-    expect(t.release('x')).toBe(false);
+    const t = new PolyNoteTracker();
+    expect(t.release('x')).toBeUndefined();
   });
 
-  it('releaseAll: 鳴っている音があればキーオフし、なければ何もしない', () => {
-    const t = new MonoNoteTracker();
-    expect(t.releaseAll()).toBe(false); // まだ何も押していない
-    t.press('a', 60);
-    expect(t.releaseAll()).toBe(true);
-    expect(t.releaseAll()).toBe(false); // 既に止めた後は何もしない
-    expect(t.release('a')).toBe(false); // releaseAll 後は 'a' の release も無効
+  it('releaseAll は押している全キーの ID を返し、空にする', () => {
+    const t = new PolyNoteTracker();
+    expect(t.releaseAll()).toEqual([]);
+    t.press('a');
+    t.bind('a', 1);
+    t.press('pointer:3');
+    t.bind('pointer:3', 2);
+    expect(t.releaseAll().sort()).toEqual([1, 2]);
+    expect(t.releaseAll()).toEqual([]);
+    expect(t.release('a')).toBeUndefined();
   });
 });
