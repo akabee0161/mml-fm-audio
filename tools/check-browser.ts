@@ -33,11 +33,78 @@ try {
   const silent = await page.evaluate(() => window.__mmlFmAudio!.peak());
   check(silent === 0, `鍵を押す前は無音（${silent}）`);
 
+  const peak = () => page.evaluate(() => window.__mmlFmAudio!.peak());
+  const peakLeft = () => page.evaluate(() => window.__mmlFmAudio!.peakLeft());
+  const peakRight = () => page.evaluate(() => window.__mmlFmAudio!.peakRight());
+  /** 音が消えるまで待つ（最大 3 秒） */
+  const waitSilent = async () => {
+    for (let i = 0; i < 30 && (await peak()) > 0.001; i++) await page.waitForTimeout(100);
+  };
+  const setPan = (value: number) =>
+    page.$eval('#pan', (el, v) => {
+      (el as HTMLInputElement).value = String(v);
+      el.dispatchEvent(new Event('input'));
+    }, value);
+
   await page.keyboard.down('a');
   await page.waitForTimeout(300);
-  const playing = await page.evaluate(() => window.__mmlFmAudio!.peak());
+  const single = await peak();
+  check(single > 0.01, `鍵を押すと音が出る（最大振幅 ${single.toFixed(3)}）`);
+
+  await page.keyboard.down('d');
+  await page.keyboard.down('g');
+  await page.waitForTimeout(300);
+  const chord = await peak();
+  check(chord > single * 1.2, `和音で振幅が増える（${single.toFixed(3)} → ${chord.toFixed(3)}）`);
+
+  await page.evaluate(() => window.dispatchEvent(new Event('blur')));
+  await waitSilent();
+  const afterBlur = await peak();
+  check(afterBlur < 0.001, `ウィンドウのフォーカスが外れると、押したままの音が止まる（${afterBlur.toFixed(4)}）`);
+  for (const key of ['a', 'd', 'g']) await page.keyboard.up(key);
+
+  await setPan(0);
+  await page.keyboard.down('a');
+  await page.waitForTimeout(300);
+  const [left, right] = [await peakLeft(), await peakRight()];
   await page.keyboard.up('a');
-  check(playing > 0.01, `鍵を押すと音が出る（最大振幅 ${playing.toFixed(3)}）`);
+  check(left > 0.01 && right < 0.001, `パン 0 では左だけから鳴る（左 ${left.toFixed(3)}、右 ${right.toFixed(4)}）`);
+  await setPan(64);
+  await waitSilent();
+
+  const drums = await page.locator('#drums .drum').count();
+  check(drums === 8, `ドラムのボタンが 8 個ある（${drums} 個）`);
+  for (let i = 0; i < drums; i++) {
+    const button = page.locator('#drums .drum').nth(i);
+    const name = await button.getAttribute('data-drum');
+    await button.click();
+    await page.waitForTimeout(30);
+    const value = await peak();
+    check(value > 0.01, `ドラム ${name} が鳴る（最大振幅 ${value.toFixed(3)}）`);
+    await waitSilent();
+  }
+
+  await page.check('#load-toggle');
+  await page.click('#poly-test');
+  await page.waitForTimeout(300);
+  const poly = await peak();
+  check(poly > 0.01, `16 音ボタンで音が出る（最大振幅 ${poly.toFixed(3)}）`);
+  await page.waitForFunction(() => /平均/.test(document.getElementById('load')!.textContent ?? ''), null, { timeout: 3000 });
+  const load = await page.textContent('#load');
+  check(/ボイス数（最大） 16/.test(load ?? ''), `負荷が表示され、16 ボイスが鳴っている（${(load ?? '').replace(/\n/g, ' / ')}）`);
+  await page.click('#poly-test');
+  await page.uncheck('#load-toggle');
+  await waitSilent();
+
+  // 1 回の測定は音の隙間に当たりうるので、2 小節（4 秒）の間 50 ms ごとに測って最大を取る
+  await page.click('#rhythm');
+  let rhythm = 0;
+  for (let i = 0; i < 80; i++) {
+    rhythm = Math.max(rhythm, await peak());
+    await page.waitForTimeout(50);
+  }
+  await page.click('#rhythm');
+  check(rhythm > 0.03, `リズムが鳴る（2 小節の最大振幅 ${rhythm.toFixed(3)}）`);
 
   check(pageErrors.length === 0, `ページでエラーが起きていない（${pageErrors.join(' / ')}）`);
 } finally {
