@@ -40,4 +40,14 @@ describe('EventQueue', () => {
     q.push({ time: 138.5, name: 'frac' });
     expect(q.takeDue(128, 128)).toEqual([{ offset: 10, event: { time: 138.5, name: 'frac' } }]);
   });
+
+  it('takeDue は毎回同じ配列を使い回す（音声処理のスレッドでブロックごとにメモリーを確保しない）', () => {
+    const q = new EventQueue<Ev>();
+    const first = q.takeDue(0, 128);
+    q.push({ time: 130, name: 'a' });
+    const second = q.takeDue(128, 128);
+    expect(second).toBe(first);
+    expect(second).toEqual([{ offset: 2, event: { time: 130, name: 'a' } }]);
+    expect(q.takeDue(256, 128)).toEqual([]);
+  });
 });

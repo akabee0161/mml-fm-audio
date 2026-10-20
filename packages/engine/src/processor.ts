@@ -80,7 +80,9 @@ class FmProcessor extends AudioWorkletProcessor {
     right.fill(0);
 
     let pos = 0;
-    for (const { offset, event } of this.queue.takeDue(currentFrame, length)) {
+    const due = this.queue.takeDue(currentFrame, length);
+    for (let k = 0; k < due.length; k++) {
+      const { offset, event } = due[k]!;
       if (offset > pos) {
         this.pool.render(left, right, pos, offset);
         pos = offset;
