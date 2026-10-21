@@ -26,6 +26,15 @@ export class EventQueue<E extends { time: number }> {
     return due;
   }
 
+  /** まだ取り出していないイベントのうち、predicate に合うものを捨てる。残りの順番は保つ */
+  removeWhere(predicate: (event: E) => boolean): void {
+    let kept = 0;
+    for (const event of this.items) {
+      if (!predicate(event)) this.items[kept++] = event;
+    }
+    this.items.length = kept;
+  }
+
   get size(): number {
     return this.items.length;
   }

@@ -50,4 +50,16 @@ describe('EventQueue', () => {
     expect(second).toEqual([{ offset: 2, event: { time: 130, name: 'a' } }]);
     expect(q.takeDue(256, 128)).toEqual([]);
   });
+
+  it('removeWhere は合うものだけを捨て、残りの順番を保つ', () => {
+    const q = new EventQueue<Ev>();
+    q.push({ time: 130, name: 'a' });
+    q.push({ time: 140, name: 'x' });
+    q.push({ time: 150, name: 'b' });
+    q.push({ time: 150, name: 'x' });
+    q.push({ time: 160, name: 'c' });
+    q.removeWhere((e) => e.name === 'x');
+    expect(q.size).toBe(3);
+    expect(q.takeDue(128, 128).map((d) => d.event.name)).toEqual(['a', 'b', 'c']);
+  });
 });
