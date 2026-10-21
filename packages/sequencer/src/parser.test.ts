@@ -329,3 +329,160 @@ describe('analyzeMml: 命令の記録', () => {
     ]);
   });
 });
+
+describe('parseMml: 繰り返し [ ]N', () => {
+  const pitches = (mml: string, track = 0) =>
+    notes(mml, track).map((n) => n.type === 'note' && n.note);
+  const positions = (mml: string) => parseMml(mml).errors.map((e) => [e.line, e.column]);
+
+  it('[cd]2 e は c d c d e', () => {
+    expect(parseMml('A [cd]2 e').errors).toEqual([]);
+    expect(pitches('A [cd]2 e')).toEqual([60, 62, 60, 62, 64]);
+    expect(parseMml('A [cd]2 e').tracks[0].length).toBe(480);
+  });
+
+  it('入れ子：[[c]2 d]2 は c c d c c d', () => {
+    expect(pitches('A [[c]2 d]2')).toEqual([60, 60, 62, 60, 60, 62]);
+  });
+
+  it('中の状態の変化は次の回に持ち越す', () => {
+    const ns = notes('A [o5 c]2');
+    expect(ns.map((n) => n.type === 'note' && n.note)).toEqual([72, 72]);
+    // o を持ち越す例：[c >]2 は 60, 72
+    expect(pitches('A [c >]2')).toEqual([60, 72]);
+    expect(parseMml('A [c >]2').errors).toEqual([]);
+  });
+
+  it.each([
+    ['A [cd]', [[1, 6]]],
+    ['A [cd]0', [[1, 6]]],
+    ['A [cd]256', [[1, 6]]],
+    ['A cd]2', [[1, 5]]],
+    ['A [cd', [[1, 3]]],
+    ['A [c4&]2', [[1, 6]]],
+    ['A [c x]3', [[1, 6]]],
+  ])('%s のエラー', (mml, expected) => {
+    expect(positions(mml)).toEqual(expected);
+  });
+
+  it('[ ] をまたぐタイは [ の直後・] の直後からもエラー', () => {
+    expect(parseMml('A c [&c]2').errors).toHaveLength(1);
+    expect(parseMml('A [c]2 &c').errors).toHaveLength(1);
+  });
+
+  it('入れ子の閉じ忘れは、それぞれの [ の位置', () => {
+    expect(positions('A [[c]2')).toEqual([[1, 3]]);
+    expect(positions('A [[c')).toEqual([[1, 3], [1, 4]]);
+  });
+
+  it('展開が 100,000 を超える入れ子は、エラー 1 つで 1 秒以内に終わる', () => {
+    const start = performance.now();
+    const song = parseMml('A [[[[c]255]255]255]255');
+    expect(performance.now() - start).toBeLessThan(1000);
+    expect(song.errors).toHaveLength(1);
+    expect(song.errors[0]).toMatchObject({ line: 1, column: 3 });
+  });
+
+  it.each(['A [[[[r]255]255]255]255', 'A [[[[v8]255]255]255]255', 'A [[[[x]255]255]255]255'])(
+    '%s も 1 秒以内に終わり、エラーは 1 つ以上で止まる',
+    (mml) => {
+      const start = performance.now();
+      const song = parseMml(mml);
+      expect(performance.now() - start).toBeLessThan(1000);
+      expect(song.errors.filter((e) => e.line === 1 && e.column === 3)).toHaveLength(1);
+      expect(song.errors.length).toBeLessThanOrEqual(2); // 展開の上限と、x があればその 1 件
+    },
+  );
+
+  it('上限ぎりぎりの展開は通る', () => {
+    expect(parseMml('A [[c]250]100').errors).toEqual([]);
+  });
+});
+
+describe('parseMml: B-0', () => {
+  it('B-0 の bend は 0（-0 にならない）', () => {
+    const song = parseMml('A B-0 c');
+    expect(song.errors).toEqual([]);
+    const bend = song.tracks[0].events.find((e) => e.type === 'bend');
+    expect(Object.is((bend as { cents: number }).cents, 0)).toBe(true);
+    const n = song.tracks[0].events.find((e) => e.type === 'note');
+    expect(Object.is((n as { bend: number }).bend, 0)).toBe(true);
+  });
+});
+
+describe('parseMml: ループ L・E', () => {
+  const positions = (mml: string) => parseMml(mml).errors.map((e) => [e.line, e.column]);
+
+  it('A c L d e は loopStart 96、loopEnd 288', () => {
+    const song = parseMml('A c L d e');
+    expect(song.errors).toEqual([]);
+    expect([song.loopStart, song.loopEnd]).toEqual([96, 288]);
+  });
+
+  it('A L c は loopStart 0、A c d は loopStart null で loopEnd 192', () => {
+    expect(parseMml('A L c').loopStart).toBe(0);
+    const song = parseMml('A c d');
+    expect([song.loopStart, song.loopEnd]).toEqual([null, 192]);
+  });
+
+  it('A c L d E r4 は通り、loopEnd 192、length 288', () => {
+    const song = parseMml('A c L d E r4');
+    expect(song.errors).toEqual([]);
+    expect([song.loopStart, song.loopEnd, song.length]).toEqual([96, 192, 288]);
+  });
+
+  it('E の後のノートオンはエラー', () => {
+    expect(positions('A c L d E e')).toEqual([[1, 11]]);
+  });
+
+  it('ループ終了を越えるノートは書ける', () => {
+    const mml = 'B L c2 c2 E\nA r2 r4 r8 e8&e4';
+    const song = parseMml(mml);
+    expect(song.errors).toEqual([]);
+    expect([song.loopStart, song.loopEnd, song.length]).toEqual([0, 384, 480]);
+    const a = song.tracks.find((t) => t.name === 'A')!;
+    const ns = a.events.filter((e) => e.type === 'note');
+    expect(ns).toHaveLength(1);
+    expect(ns[0]).toMatchObject({ tick: 336, gate: 144 });
+  });
+
+  it('& と次の音符の間の E はエラー', () => {
+    const errors = parseMml('A L c2 c4 r8 e8&E e4').errors;
+    // & の位置（1 行 16 列）と、E の後の e4（19 列）がノートオンなのでエラー
+    expect(errors.map((e) => [e.line, e.column])).toEqual([[1, 16], [1, 19]]);
+  });
+
+  it('別のトラックの E より後の v はエラー、休符は通る', () => {
+    expect(positions('A L c c E\nB c d v10')).toEqual([[2, 7]]);
+    expect(parseMml('A L c c E\nB c d r4').errors).toEqual([]);
+  });
+
+  it('E より後の B t @ p q o < > l と、タイの続きでない音符はエラー', () => {
+    for (const cmd of ['B+10', 't100', '@1', 'p10', 'q4', 'o5', '<', '>', 'l8', 'v1']) {
+      expect(positions(`A L c c E\nB c d ${cmd}`)).toEqual([[2, 7]]);
+    }
+  });
+
+  it.each([
+    ['A c L L d', [[1, 7]]],
+    ['A c E', [[1, 5]]],
+    ['A c E L d', [[1, 5]]],
+    ['A L E c', [[1, 5]]],
+    ['A [L c]2', [[1, 4]]],
+    ['A [c E]2', [[1, 6]]],
+    ['A c L', [[1, 5]]],
+    ['A L c E E r', [[1, 9]]],
+  ])('%s のエラー', (mml, expected) => {
+    expect(positions(mml)).toEqual(expected);
+  });
+
+  it('違う長さのトラック：loopEnd は length', () => {
+    const song = parseMml('A L c\nB d e f');
+    expect(song.errors).toEqual([]);
+    expect([song.loopStart, song.loopEnd, song.length]).toEqual([0, 288, 288]);
+  });
+
+  it('E がなければ、E より後の検査はしない', () => {
+    expect(parseMml('A L c\nB c d e').errors).toEqual([]);
+  });
+});

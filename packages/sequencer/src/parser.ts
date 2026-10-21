@@ -10,6 +10,13 @@ const DEFAULT_PAN = 64;
 const MAX_OCTAVE = 8;
 const MAX_GATE_Q = 8;
 const DEFAULT_GATE_Q = 8;
+const MAX_REPEAT = 255;
+/** 展開後の 1 トラックの events の上限。超えたらその繰り返しの位置でエラーにして読むのをやめる */
+const MAX_EVENTS = 100_000;
+/** 1 トラックで実行する命令の総数の上限。休符や v だけの巨大な展開（events が増えない）で固まらないため */
+const MAX_EXECUTED_COMMANDS = 400_000;
+/** 失敗した命令の実行回数の上限。失敗は例外を投げる分重く、繰り返しの中では同じエラーの重複でしかないため、別に小さく持つ */
+const MAX_FAILED_EXECUTIONS = 10_000;
 
 /** 音長の表の数 → ティック（全音符 = 4 * 96） */
 const LENGTH_TABLE = new Map<number, number>(
@@ -63,7 +70,12 @@ interface TrackContext {
   continuedTie: boolean;
   /** このトラックのテンポ。同じ tick は後の値 */
   tempos: TempoEntry[];
+  /** 開いている `[`（外側が先頭） */
+  repeats: RepeatFrame[];
 }
+
+/** 開いている `[ ]`。open は `[` の text 上の添字、bodyStart は中の先頭、done は読み終えた回数 */
+interface RepeatFrame { open: number; bodyStart: number; done: number }
 
 type Command = (ctx: TrackContext) => void;
 
@@ -217,7 +229,7 @@ const pitchBend: Command = (ctx) => {
   const n = readInteger(ctx);
   if (n === null) throw new CommandError('B の符号の後には整数を書きます');
   if (n > 1200) throw new CommandError(`B${sign}${n} が -1200〜+1200 の範囲外です`);
-  ctx.bend = sign === '-' ? -n : n;
+  ctx.bend = sign === '-' && n !== 0 ? -n : n;
   ctx.events.push({ type: 'bend', tick: ctx.tick, cents: ctx.bend });
 };
 
@@ -247,6 +259,31 @@ const tie: Command = (ctx) => {
   ctx.tie = { pos: ctx.commandStart };
 };
 
+const openRepeat: Command = (ctx) => {
+  // [ ] の境をまたぐタイはエラーにするため、境では「直前の音符」を忘れる
+  ctx.lastNote = null;
+  ctx.repeats.push({ open: ctx.commandStart, bodyStart: ctx.pos, done: 1 });
+};
+
+const closeRepeat: Command = (ctx) => {
+  const frame = ctx.repeats.pop();
+  if (!frame) throw new CommandError('] に対応する [ がありません');
+  const times = readRanged(ctx, ']', 1, MAX_REPEAT);
+  ctx.lastNote = null;
+  if (frame.done < times) {
+    frame.done++;
+    ctx.repeats.push(frame);
+    ctx.pos = frame.bodyStart;
+  }
+};
+
+/** L・E。[ ] の中には書けない。曲全体で 1 つまで、L と E の順序などの検査は全トラックを読んだ後 */
+function loopMark(name: string): Command {
+  return (ctx) => {
+    if (ctx.repeats.length > 0) throw new CommandError(`${name} は [ ] の中には書けません`);
+  };
+}
+
 /** 命令の先頭の文字 → その命令の解析。後続のタスクは、ここに足す */
 const COMMANDS: Record<string, Command> = {
   c: note('c'), d: note('d'), e: note('e'), f: note('f'), g: note('g'), a: note('a'), b: note('b'),
@@ -262,6 +299,10 @@ const COMMANDS: Record<string, Command> = {
   B: pitchBend,
   t: tempo,
   '&': tie,
+  '[': openRepeat,
+  ']': closeRepeat,
+  L: loopMark('L'),
+  E: loopMark('E'),
 };
 
 /** & と次の音符の間に書ける命令（音符は別に許す） */
@@ -306,15 +347,24 @@ function parseTrack(source: TrackSource, errors: MmlError[]): ParsedTrack {
     tie: null,
     continuedTie: false,
     tempos: [],
+    repeats: [],
   };
   const text = source.text;
   const trace: CommandTrace[] = [];
 
+  // [ ] の繰り返しで同じ命令を読み直しても、同じエラーは 1 回だけ報告する
+  const reported = new Set<string>();
   const report = (index: number, message: string): void => {
+    const key = `${index}:${message}`;
+    if (reported.has(key)) return;
+    reported.add(key);
     const where = source.positions[index];
     errors.push({ line: where.line, column: where.column, message });
   };
 
+  let executed = 0;
+  let failed = 0;
+  let aborted = false;
   while (ctx.pos < text.length) {
     if (isWhitespace(peek(ctx))) {
       ctx.pos++;
@@ -343,12 +393,29 @@ function parseTrack(source: TrackSource, errors: MmlError[]): ParsedTrack {
       });
     } catch (error) {
       if (!(error instanceof CommandError)) throw error;
+      failed++;
       report(start, error.message);
       ctx.tie = null;
       skipToNextCommand(ctx, start);
     }
+    // 展開しすぎ：いちばん外側の `[` の位置（開いていなければ今の命令の位置）で報告して、読むのをやめる
+    const tooManyEvents = ctx.events.length > MAX_EVENTS;
+    if (tooManyEvents || ++executed > MAX_EXECUTED_COMMANDS || failed > MAX_FAILED_EXECUTIONS) {
+      const outer = ctx.repeats[0]?.open ?? start;
+      report(
+        outer,
+        tooManyEvents
+          ? `繰り返しを展開すると 1 トラックの events が ${MAX_EVENTS} を超えます`
+          : `繰り返しを展開すると 1 トラックで実行する命令が多すぎます（${MAX_EXECUTED_COMMANDS} 個まで。エラーになる命令は ${MAX_FAILED_EXECUTIONS} 回まで）`,
+      );
+      aborted = true;
+      break;
+    }
   }
-  if (ctx.tie) report(ctx.tie.pos, '& の後に音符がありません');
+  if (!aborted) {
+    for (const frame of ctx.repeats) report(frame.open, '[ が閉じていません');
+    if (ctx.tie) report(ctx.tie.pos, '& の後に音符がありません');
+  }
 
   return { track: { name: source.name, events: ctx.events, length: ctx.tick }, trace, tempos: ctx.tempos };
 }
@@ -378,6 +445,69 @@ function mergeTempos(parsed: ParsedTrack[], errors: MmlError[]): Tempo[] {
   return tempos;
 }
 
+/** E より後に書くとエラーになる命令（音符はノートオンだけ。タイの続きと休符は書ける） */
+const FORBIDDEN_AFTER_LOOP_END = new Set(['B', 'v', 't', '@', 'p', 'q', 'o', '<', '>', 'l']);
+
+interface Mark { tick: number; position: SourcePosition }
+
+function byPosition(x: Mark, y: Mark): number {
+  return x.position.line - y.position.line || x.position.column - y.position.column;
+}
+
+function reportAt(errors: MmlError[], position: SourcePosition, message: string): void {
+  errors.push({ line: position.line, column: position.column, message });
+}
+
+/**
+ * L・E を全トラックから集めて検査する。「2 つ目以降」は MML 上の位置の順で数える。
+ * loopEnd は、検査に通った E がなければ length
+ */
+function resolveLoop(
+  traces: CommandTrace[][],
+  length: number,
+  errors: MmlError[],
+): { loopStart: number | null; loopEnd: number } {
+  const all = traces.flat();
+  const marks = (command: string): Mark[] =>
+    all.filter((t) => t.command === command).map(({ tick, position }) => ({ tick, position })).sort(byPosition);
+  const loopMarks = marks('L');
+  const endMarks = marks('E');
+  for (const extra of loopMarks.slice(1)) reportAt(errors, extra.position, 'L は曲全体で 1 つまでです');
+  for (const extra of endMarks.slice(1)) reportAt(errors, extra.position, 'E は曲全体で 1 つまでです');
+
+  const start = loopMarks[0];
+  const end = endMarks[0];
+  let loopEnd = length;
+  let endValid = false;
+  if (end) {
+    if (!start) reportAt(errors, end.position, 'E の前に L がありません');
+    else if (end.tick <= start.tick) reportAt(errors, end.position, 'E は L より後の位置に書きます');
+    else {
+      loopEnd = end.tick;
+      endValid = true;
+    }
+  }
+  if (start && start.tick >= loopEnd) {
+    reportAt(errors, start.position, 'L とループ終了が同じ位置です（繰り返す長さが 0 です）');
+  }
+
+  if (endValid) {
+    const seen = new Set<string>();
+    for (const t of all) {
+      if (t.tick < loopEnd || !(t.noteOn || FORBIDDEN_AFTER_LOOP_END.has(t.command))) continue;
+      const key = `${t.position.line}:${t.position.column}`;
+      if (seen.has(key)) continue;
+      seen.add(key);
+      reportAt(
+        errors,
+        t.position,
+        `E より後（tick ${t.tick}）には '${t.command}' を書けません（休符と、ループ終了を越えるノートの続きだけ書けます）`,
+      );
+    }
+  }
+  return { loopStart: start ? start.tick : null, loopEnd };
+}
+
 export function analyzeMml(mml: string): { song: Song; traces: CommandTrace[][] } {
   const { tracks: sources, errors: nameErrors } = splitTracks(mml);
   const errors: MmlError[] = [...nameErrors];
@@ -385,9 +515,10 @@ export function analyzeMml(mml: string): { song: Song; traces: CommandTrace[][] 
   const tracks = parsed.map((p) => p.track);
   const tempos = mergeTempos(parsed, errors);
   const length = tracks.reduce((max, track) => Math.max(max, track.length), 0);
+  const loop = resolveLoop(parsed.map((p) => p.trace), length, errors);
   errors.sort((x, y) => x.line - y.line || x.column - y.column);
   return {
-    song: { tracks, tempos, length, loopStart: null, loopEnd: length, errors },
+    song: { tracks, tempos, length, loopStart: loop.loopStart, loopEnd: loop.loopEnd, errors },
     traces: parsed.map((p) => p.trace),
   };
 }
