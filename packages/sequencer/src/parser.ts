@@ -1,5 +1,5 @@
 import { splitTracks, type SourcePosition, type TrackSource } from './source.ts';
-import { TICKS_PER_QUARTER, type MmlError, type Song, type Tempo, type Track, type TrackEvent } from './song.ts';
+import { DRUM_PROGRAMS, TICKS_PER_QUARTER, type MmlError, type Song, type Tempo, type Track, type TrackEvent } from './song.ts';
 
 const DEFAULT_BPM = 120;
 const DEFAULT_OCTAVE = 4;
@@ -24,6 +24,10 @@ const LENGTH_TABLE = new Map<number, number>(
 );
 
 const NOTE_SEMITONES: Record<string, number> = { c: 0, d: 2, e: 4, f: 5, g: 7, a: 9, b: 11 };
+
+/** ドラムトラックの名前（spec §3.4） */
+const DRUM_TRACK_NAME = 'R';
+const DRUM_NOTE = 60;
 
 type NoteEvent = Extract<TrackEvent, { type: 'note' }>;
 
@@ -66,8 +70,10 @@ interface TrackContext {
   lastNote: { event: NoteEvent; ticks: number } | null;
   /** & を読んだ後、次の音符を待っている。pos は & の text 上の添字 */
   tie: { pos: number } | null;
-  /** いま実行した音符が、タイの続きだった */
-  continuedTie: boolean;
+  /** いま実行した命令が、ノートオンした（音符・ドラム。タイの続きは含まない） */
+  noteOn: boolean;
+  /** ドラムトラック（R）。ドラム名を読み、使える命令が限られる */
+  drumTrack: boolean;
   /** このトラックのテンポ。同じ tick は後の値 */
   tempos: TempoEntry[];
   /** 開いている `[`（外側が先頭） */
@@ -145,8 +151,8 @@ function note(letter: string): Command {
       ctx.tie = null;
       previous.ticks += ticks;
       previous.event.gate = gateOf(ctx, previous.ticks);
-      ctx.continuedTie = true;
     } else {
+      ctx.noteOn = true;
       const event: NoteEvent = {
         type: 'note',
         tick: ctx.tick,
@@ -160,6 +166,28 @@ function note(letter: string): Command {
       ctx.events.push(event);
       ctx.lastNote = { event, ticks };
     }
+    ctx.tick += ticks;
+  };
+}
+
+/** ドラム名（2 文字）。R では 1 文字の命令より先に照合する */
+function drum(name: keyof typeof DRUM_PROGRAMS): Command {
+  return (ctx) => {
+    const ticks = readDuration(ctx);
+    const event: NoteEvent = {
+      type: 'note',
+      tick: ctx.tick,
+      gate: gateOf(ctx, ticks),
+      program: DRUM_PROGRAMS[name],
+      note: DRUM_NOTE,
+      volume: ctx.volume,
+      pan: ctx.pan,
+      bend: 0,
+    };
+    ctx.events.push(event);
+    // ドラムはタイでつながない
+    ctx.lastNote = null;
+    ctx.noteOn = true;
     ctx.tick += ticks;
   };
 }
@@ -219,6 +247,8 @@ const gateTime: Command = (ctx) => {
 
 const volume: Command = (ctx) => {
   ctx.volume = readRanged(ctx, 'v', 0, 15);
+  // R の v は、次のドラムから効く（ドラムは鳴り終わるまで鳴り、途中で音量を変える対象がない）
+  if (ctx.drumTrack) return;
   ctx.events.push({ type: 'volume', tick: ctx.tick, volume: ctx.volume });
 };
 
@@ -305,6 +335,41 @@ const COMMANDS: Record<string, Command> = {
   E: loopMark('E'),
 };
 
+/** R に書けない命令（音符・o < > @ & B）。音符は、書きかけのドラム名として読める文字（b など）も含む */
+function drumTrackForbidden(char: string): Command {
+  const message = char in NOTE_SEMITONES
+    ? `ドラムトラック（R）には音符を書けません（ドラム名 ${Object.keys(DRUM_PROGRAMS).join(' ')} を書きます）`
+    : `ドラムトラック（R）には '${char}' を書けません`;
+  return () => {
+    throw new CommandError(message);
+  };
+}
+
+/** R の命令表。メロディ用の表から、使えない命令をエラーにして共用する */
+const DRUM_COMMANDS: Record<string, Command> = {
+  ...COMMANDS,
+  ...Object.fromEntries(
+    [...Object.keys(NOTE_SEMITONES), 'o', '<', '>', '@', '&', 'B'].map((c) => [c, drumTrackForbidden(c)]),
+  ),
+};
+
+const DRUM_NAMES: ReadonlyMap<string, Command> = new Map(
+  (Object.keys(DRUM_PROGRAMS) as (keyof typeof DRUM_PROGRAMS)[]).map((name) => [name, drum(name)]),
+);
+
+/** この位置の命令。R ではドラム名を先に照合する。name は trace と E より後の検査に出す名前 */
+function lookupCommand(ctx: TrackContext, start: number): { name: string; length: number; command: Command } | undefined {
+  const text = ctx.source.text;
+  if (ctx.drumTrack) {
+    const name = text.slice(start, start + 2);
+    const command = DRUM_NAMES.get(name);
+    if (command) return { name, length: 2, command };
+  }
+  const char = text[start];
+  const table = ctx.drumTrack ? DRUM_COMMANDS : COMMANDS;
+  return Object.hasOwn(table, char) ? { name: char, length: 1, command: table[char] } : undefined;
+}
+
 /** & と次の音符の間に書ける命令（音符は別に許す） */
 const TIE_TRANSPARENT = new Set(['B', 'v']);
 
@@ -317,7 +382,7 @@ function skipToNextCommand(ctx: TrackContext, commandStart: number): void {
   ctx.pos = commandStart + 1;
   while (ctx.pos < ctx.source.text.length) {
     const ch = peek(ctx);
-    if (isWhitespace(ch) || Object.hasOwn(COMMANDS, ch)) return;
+    if (isWhitespace(ch) || lookupCommand(ctx, ctx.pos)) return;
     ctx.pos++;
   }
 }
@@ -345,7 +410,8 @@ function parseTrack(source: TrackSource, errors: MmlError[]): ParsedTrack {
     commandStart: 0,
     lastNote: null,
     tie: null,
-    continuedTie: false,
+    noteOn: false,
+    drumTrack: source.name === DRUM_TRACK_NAME,
     tempos: [],
     repeats: [],
   };
@@ -372,24 +438,24 @@ function parseTrack(source: TrackSource, errors: MmlError[]): ParsedTrack {
     }
     const start = ctx.pos;
     const char = text[start];
-    const command = Object.hasOwn(COMMANDS, char) ? COMMANDS[char] : undefined;
+    const found = lookupCommand(ctx, start);
     // & の次に書けるのは音符・B・v だけ。ほかの命令なら & の位置で報告し、その命令は普通に読む
-    if (ctx.tie && command && !(char in NOTE_SEMITONES) && !TIE_TRANSPARENT.has(char)) {
+    if (ctx.tie && found && !(char in NOTE_SEMITONES) && !TIE_TRANSPARENT.has(char)) {
       report(ctx.tie.pos, `& の後に音符がありません（間に書けるのは B と v だけです。'${char}' があります）`);
       ctx.tie = null;
     }
     const tickBefore = ctx.tick;
     ctx.commandStart = start;
-    ctx.continuedTie = false;
+    ctx.noteOn = false;
     try {
-      if (!command) throw new CommandError(`命令 '${char}' が分かりません`);
-      ctx.pos++;
-      command(ctx);
+      if (!found) throw new CommandError(`命令 '${char}' が分かりません`);
+      ctx.pos += found.length;
+      found.command(ctx);
       trace.push({
-        command: char,
+        command: found.name,
         tick: tickBefore,
         position: source.positions[start],
-        noteOn: char in NOTE_SEMITONES && !ctx.continuedTie,
+        noteOn: ctx.noteOn,
       });
     } catch (error) {
       if (!(error instanceof CommandError)) throw error;

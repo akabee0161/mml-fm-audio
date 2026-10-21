@@ -486,3 +486,73 @@ describe('parseMml: ループ L・E', () => {
     expect(parseMml('A L c\nB c d e').errors).toEqual([]);
   });
 });
+
+describe('parseMml: ドラムトラック R', () => {
+  const drumEvents = (mml: string) => parseMml(mml).tracks[0].events;
+
+  it('ドラム名が note イベントになる（program・tick・note 60・bend 0）', () => {
+    const song = parseMml('R bd8 sd8 lt cp ch oh cy ht');
+    expect(song.errors).toEqual([]);
+    const events = song.tracks[0].events;
+    expect(events.map((e) => e.type === 'note' && e.program)).toEqual([128, 129, 133, 135, 130, 131, 132, 134]);
+    expect(events.map((e) => e.tick)).toEqual([0, 48, 96, 192, 288, 384, 480, 576]);
+    expect(events[0]).toMatchObject({ type: 'note', note: 60, bend: 0, volume: 12, pan: 64 });
+  });
+
+  it('音長・付点・%N は音符と同じ', () => {
+    const song = parseMml('R bd8. sd%10 ch');
+    expect(song.errors).toEqual([]);
+    expect(song.tracks[0].events.map((e) => e.tick)).toEqual([0, 72, 82]);
+    expect(song.tracks[0].length).toBe(82 + 96);
+  });
+
+  it('v は volume イベントを出さず、次のドラムから効く', () => {
+    const events = drumEvents('R l8 [bd ch]2 v8 sd');
+    expect(events.some((e) => e.type === 'volume')).toBe(false);
+    const notes = events.filter((e) => e.type === 'note');
+    expect(notes.map((e) => e.volume)).toEqual([12, 12, 12, 12, 8]);
+  });
+
+  it('p・q・t・r・l が使える', () => {
+    const song = parseMml('R p10 q4 t100 r4 l8 bd');
+    expect(song.errors).toEqual([]);
+    expect(song.tempos).toEqual([{ tick: 0, bpm: 100 }]);
+    expect(song.tracks[0].events[0]).toMatchObject({ pan: 10, tick: 96, gate: 24 });
+  });
+
+  it.each([
+    ['R c', [[1, 3]]],
+    ['R b', [[1, 3]]],
+    ['R bd&bd', [[1, 5]]],
+    ['R @1 bd', [[1, 3]]],
+    ['R o5 bd', [[1, 3]]],
+    ['R B+10 bd', [[1, 3]]],
+    ['R < bd', [[1, 3]]],
+    ['R cx', [[1, 3]]],
+  ])('%s のエラーは 1 命令 1 件', (mml, expected) => {
+    expect(parseMml(mml).errors.map((e) => [e.line, e.column])).toEqual(expected);
+  });
+
+  it('エラーの後のドラムは読まれる', () => {
+    const song = parseMml('R o5 bd @1 sd');
+    expect(song.errors).toHaveLength(2);
+    expect(song.tracks[0].events.map((e) => e.type === 'note' && e.program)).toEqual([128, 129]);
+  });
+
+  it('R L bd E は A L c E と同じに解析できる', () => {
+    const drum = parseMml('R L bd E');
+    const melody = parseMml('A L c E');
+    expect(drum.errors).toEqual([]);
+    expect([drum.loopStart, drum.loopEnd, drum.length]).toEqual([melody.loopStart, melody.loopEnd, melody.length]);
+  });
+
+  it('E より後のドラムはエラー、休符は通る', () => {
+    const errors = parseMml('A L c c E\nR bd bd bd bd r4').errors;
+    expect(errors.map((e) => [e.line, e.column])).toEqual([[2, 9], [2, 12]]);
+    expect(errors[0].message).toContain("'bd'");
+  });
+
+  it('メロディのトラックの cd はドラム名にならず、音符 c と d', () => {
+    expect(notes('A cd').map((e) => e.note)).toEqual([60, 62]);
+  });
+});
