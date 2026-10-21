@@ -232,6 +232,14 @@ describe('parseMml: タイ', () => {
     expect(notes('A q4 c4&c4')[0]).toMatchObject({ gate: 96 });
   });
 
+  it('タイの q はノートオンした時点の値：後ろの音符の前に書いた q は効かない', () => {
+    expect(notes('A c4 q4 &c4')[0]).toMatchObject({ gate: 192 });
+  });
+
+  it('タイの q はノートオンした時点の値：先に書いた q4 が全体に掛かる', () => {
+    expect(notes('A q4 c4 q8 &c4')[0]).toMatchObject({ gate: 96 });
+  });
+
   it('タイの間の B・v はその位置のイベントになり、次のノートに引き継がれる', () => {
     const mml = 'A c8&B+50c8&v8c8 c';
     const song = parseMml(mml);

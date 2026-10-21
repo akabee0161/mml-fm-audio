@@ -67,7 +67,7 @@ interface TrackContext {
   /** 実行中の命令の先頭の text 上の添字 */
   commandStart: number;
   /** 直前の命令が音符のときだけ入る（休符で消える）。& でつなぐ対象 */
-  lastNote: { event: NoteEvent; ticks: number } | null;
+  lastNote: { event: NoteEvent; ticks: number; gateQ: number } | null;
   /** & を読んだ後、次の音符を待っている。pos は & の text 上の添字 */
   tie: { pos: number } | null;
   /** いま実行した命令が、ノートオンした（音符・ドラム。タイの続きは含まない） */
@@ -150,13 +150,13 @@ function note(letter: string): Command {
       }
       ctx.tie = null;
       previous.ticks += ticks;
-      previous.event.gate = gateOf(ctx, previous.ticks);
+      previous.event.gate = gateOf(previous.gateQ, previous.ticks);
     } else {
       ctx.noteOn = true;
       const event: NoteEvent = {
         type: 'note',
         tick: ctx.tick,
-        gate: gateOf(ctx, ticks),
+        gate: gateOf(ctx.gateQ, ticks),
         program: ctx.program,
         note: number,
         volume: ctx.volume,
@@ -164,7 +164,7 @@ function note(letter: string): Command {
         bend: ctx.bend,
       };
       ctx.events.push(event);
-      ctx.lastNote = { event, ticks };
+      ctx.lastNote = { event, ticks, gateQ: ctx.gateQ };
     }
     ctx.tick += ticks;
   };
@@ -177,7 +177,7 @@ function drum(name: keyof typeof DRUM_PROGRAMS): Command {
     const event: NoteEvent = {
       type: 'note',
       tick: ctx.tick,
-      gate: gateOf(ctx, ticks),
+      gate: gateOf(ctx.gateQ, ticks),
       program: DRUM_PROGRAMS[name],
       note: DRUM_NOTE,
       volume: ctx.volume,
@@ -192,9 +192,9 @@ function drum(name: keyof typeof DRUM_PROGRAMS): Command {
   };
 }
 
-/** q を掛けたゲート。切り捨てて、最小 1 ティック。ticks はタイでつないだ全体の長さ */
-function gateOf(ctx: TrackContext, ticks: number): number {
-  return Math.max(1, Math.floor((ticks * ctx.gateQ) / MAX_GATE_Q));
+/** q を掛けたゲート。切り捨てて、最小 1 ティック。ticks はタイでつないだ全体の長さ、gateQ はノートオンした時点の q */
+function gateOf(gateQ: number, ticks: number): number {
+  return Math.max(1, Math.floor((ticks * gateQ) / MAX_GATE_Q));
 }
 
 const rest: Command = (ctx) => {

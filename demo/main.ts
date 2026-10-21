@@ -151,6 +151,8 @@ function setupMml(engine: FmEngine, context: AudioContext, wake: () => void): vo
     wake();
     const song = parseMml(textarea.value);
     if (song.errors.length > 0) {
+      // エラーが 1 つでもあれば再生しない。鳴っている再生も止める
+      stop();
       listItems(errorList, song.errors.map((e) => `行 ${e.line}・列 ${e.column}：${e.message}`));
       return;
     }

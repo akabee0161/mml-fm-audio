@@ -146,9 +146,13 @@ try {
   const stopped = await peak();
   check(stopped < 0.001, `停止すると 3 秒以内に無音になる（${stopped.toFixed(4)}）`);
 
-  // エラーの確認の前に停止しておく（エラー時は鳴っている再生を止めない）
+  // エラーがあれば再生しない。鳴っている再生も止まる（試聴曲を鳴らしてから、エラーのある MML で再生を押す）
+  await page.click('#mml-play');
+  const replayed = await maxPeak(1500);
+  check(replayed > 0.03, `止めた後にもう一度押すと、試聴曲が鳴る（最大振幅 ${replayed.toFixed(3)}）`);
   await page.fill('#mml', 'A c4&d4');
   await page.click('#mml-play');
+  await waitSilent();
   const errorTexts = await page.locator('#mml-errors li').allTextContents();
   check(
     errorTexts.some((t) => t.includes('行 1・列 6')),
