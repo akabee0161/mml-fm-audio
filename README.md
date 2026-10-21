@@ -7,13 +7,15 @@ ankardo のブラウザゲームで使う、FM 音源と軽量楽曲フォーマ
 
 ## 現在の状態
 
-M2（16 音同時発音、ステレオ、ノイズ、ドラム 8 種、負荷の計測）まで。MML・ゲーム向け API はまだない。
+M3（MML の全命令とループ）まで。ゲーム向け API はまだない。MML の文法は `docs/mml.md`。
 
 - 音源は 16 ボイス（`packages/engine/src/voicePool.ts` の `MAX_VOICES`、暫定）。空きがなければ最も古く鳴らした音を止めて使う。効果音を優先する割り当ては M4 で入れる。
 - 音色は番号（`program`）に登録して鳴らす。0〜127 は FM 音色、128〜255 はドラム。`FmEngine.noteOn` は音の ID を返し、`noteOff` はその ID で止める。ドラムは `noteOff` を無視し、鳴り終わるまで鳴る。
-- 試聴ページでは、和音、16 音の同時発音、パン、ドラム 8 種、簡易なリズム、負荷の表示（1 ブロックの処理時間）を試せる。
-- 設計：`docs/superpowers/specs/2026-10-11-m1-engine-design.md`、`docs/superpowers/specs/2026-10-20-m2-polyphony-design.md`
-- 実装計画：`docs/superpowers/plans/2026-10-11-m1-engine.md`、`docs/superpowers/plans/2026-10-20-m2-polyphony.md`
+- 音源は、音量（`noteOn` の倍率と `setVolume`）、ピッチベンド（`noteOn` のずれと `setPitchBend`）、予約した発音の取り消しを受け付ける。
+- `packages/sequencer` の `parseMml` が MML を解析し（エラーは行・列・理由つき）、`Player` が曲を少し先まで音源へ送って鳴らす。`L` から `E`（省けば曲の終わり）までを繰り返す。
+- 試聴ページでは、和音、16 音の同時発音、パン、ドラム 8 種、簡易なリズム、負荷の表示（1 ブロックの処理時間）に加え、MML の欄で曲（`demo/songs/m3-demo.mml`）を書き換えて再生・停止できる。エラーは欄の下に出る。
+- 設計：`docs/superpowers/specs/2026-10-11-m1-engine-design.md`、`docs/superpowers/specs/2026-10-20-m2-polyphony-design.md`、`docs/superpowers/specs/2026-10-21-m3-sequencer-design.md`
+- 実装計画：`docs/superpowers/plans/2026-10-11-m1-engine.md`、`docs/superpowers/plans/2026-10-20-m2-polyphony.md`、`docs/superpowers/plans/2026-10-21-m3-sequencer.md`
 - 負荷の実測記録：`docs/load-measurements.md`
 - 残っている課題：`ISSUES.md`
 - 作業の引き継ぎ：`HANDOVER.md`
@@ -23,10 +25,12 @@ M2（16 音同時発音、ステレオ、ノイズ、ドラム 8 種、負荷の
 | パス | 内容 |
 |---|---|
 | `packages/engine/` | 音源。`processor.ts` が AudioWorklet、それ以外は Worklet に依存しない計算 |
+| `packages/sequencer/` | MML の解析（`parseMml`）、ティックから時刻への変換、曲を音源へ送る `Player`。Worklet には依存しない |
 | `voices/ymf825/` | YMF825 の音色データ（`tonedata.txt`）と、その変換結果（`gm.json`・`unassigned.json`） |
 | `voices/custom/` | 独自の音色（ドラム 8 種の `drums.json`） |
 | `tools/` | 音色データの変換、ヘッドレス Chromium での確認 |
 | `demo/` | 試聴ページ |
+| `demo/songs/` | 試聴ページが読み込む手書きの曲（`m3-demo.mml`） |
 
 ## 使い方
 
@@ -56,6 +60,7 @@ Node 22.18 以上が必要（`tools/` の `.ts` を Node で直接実行する�
 - `packages/engine/src/envelope.ts`：`RATE15_DB_PER_SEC`、`ATTACK_SPEEDUP`、KSR の効き方
 - `packages/engine/src/output.ts`：パンの効き方（等パワー、64 を中央）
 - `packages/engine/src/voicePool.ts`：`MAX_VOICES`（同時発音数。負荷の実測を見て見直す）
+- `packages/sequencer/src/player.ts`：`VOLUME_DB_PER_STEP`（`v` の 1 段の dB。3 dB、`v15` が 0 dB）
 
 ## 公開
 
