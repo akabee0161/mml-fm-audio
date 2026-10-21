@@ -165,4 +165,21 @@ describe('Player', () => {
     const cancel = calls.find((c) => c.type === 'cancel');
     expect(cancel).toEqual({ type: 'cancel', ids: [2] });
   });
+
+  it('過ぎた時刻でも、送ったノートのノートオフは送る', () => {
+    const { player, calls } = make('A c d');
+    player.pump(0, 1000);
+    expect(ons(calls)).toHaveLength(1);
+    player.pump(30000, 60000);
+    const offs = calls.filter((c) => c.type === 'noteOff');
+    expect(offs).toEqual([{ type: 'noteOff', id: 1, time: 24000 }]);
+  });
+
+  it('1 周のアクションが非常に多い曲でも、待ち行列への追加でスタックが溢れない', () => {
+    const song = parseMml('A l16 [[c]250]255');
+    expect(song.errors).toEqual([]);
+    const { engine } = fakeEngine();
+    const player = new Player(engine, song, { sampleRate: SR, startFrame: 0 });
+    expect(() => player.pump(0, 4800)).not.toThrow();
+  });
 });

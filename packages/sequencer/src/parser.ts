@@ -113,7 +113,7 @@ function readDots(ctx: TrackContext, base: number): number {
   return total;
 }
 
-/** 音長を読む。表の数、または %N（ティック）。なければ l の音長。付点は明示した音長にだけ付く */
+/** 音長を読む。表の数、または %N（ティック）。なければ l の音長。付点はどの場合にも付けられる（l の音長にも付く。`l8 c.` は 72 ティック） */
 function readDuration(ctx: TrackContext): number {
   const ch = peek(ctx);
   if (ch === '%') {

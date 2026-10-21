@@ -143,7 +143,7 @@ export class Player {
     });
 
     if (!looping) this.generationDone = true;
-    this.queue.push(...added);
+    for (const a of added) this.queue.push(a);
     this.queue.sort(compare);
   }
 
