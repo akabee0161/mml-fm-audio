@@ -135,11 +135,14 @@ function setupMml(engine: FmEngine, context: AudioContext, wake: () => void): vo
 
   textarea.value = demoSong;
 
-  const stop = () => {
+  const stopTimer = () => {
     if (timer !== undefined) {
       window.clearInterval(timer);
       timer = undefined;
     }
+  };
+  const stop = () => {
+    stopTimer();
     player?.stop();
     player = undefined;
   };
@@ -162,7 +165,8 @@ function setupMml(engine: FmEngine, context: AudioContext, wake: () => void): vo
     const tick = () => {
       const now = context.currentTime * rate;
       current.pump(now, now + MML_LOOKAHEAD_SEC * rate);
-      if (current.finished && player === current) stop();
+      // 終わった曲は、送り済みの最後の音が鳴り終わるまで cancel せず、タイマーだけ止める
+      if (current.finished && player === current) stopTimer();
     };
     tick();
     if (player === current) timer = window.setInterval(tick, MML_TICK_MS);
@@ -266,7 +270,7 @@ function setup(engine: FmEngine, context: AudioContext): void {
     const result = validateVoice(raw);
     if (!result.ok) continue; // bundledVoices() がすでにエラーを出している
     const id = result.voice.id;
-    if (typeof id === 'number' && id !== KEYBOARD_PROGRAM) engine.registerVoice(id, result.voice);
+    if (id !== null && Number.isInteger(id) && id >= 0 && id <= 127 && id !== KEYBOARD_PROGRAM) engine.registerVoice(id, result.voice);
   }
 
   setupMml(engine, context, wake);
