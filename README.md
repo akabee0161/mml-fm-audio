@@ -14,6 +14,7 @@ M2（16 音同時発音、ステレオ、ノイズ、ドラム 8 種、負荷の
 - 試聴ページでは、和音、16 音の同時発音、パン、ドラム 8 種、簡易なリズム、負荷の表示（1 ブロックの処理時間）を試せる。
 - 設計：`docs/superpowers/specs/2026-10-11-m1-engine-design.md`、`docs/superpowers/specs/2026-10-20-m2-polyphony-design.md`
 - 実装計画：`docs/superpowers/plans/2026-10-11-m1-engine.md`、`docs/superpowers/plans/2026-10-20-m2-polyphony.md`
+- 負荷の実測記録：`docs/load-measurements.md`
 - 残っている課題：`ISSUES.md`
 - 作業の引き継ぎ：`HANDOVER.md`
 

@@ -1,6 +1,6 @@
 # 課題一覧
 
-M1 の実装中のレビューで見つかり、直さずに残した課題。直す時期は依頼者と合意済み（2026-10-20）。直したら、その行を消す。
+レビューや試聴で見つかり、直さずに残した課題。直す時期は依頼者と合意済み（#1〜#8 は 2026-10-20、#9 は 2026-10-21）。直したら、その行を消す。
 
 | # | 課題 | 直す時期 | 関係するファイル |
 |---|---|---|---|
@@ -11,3 +11,4 @@ M1 の実装中のレビューで見つかり、直さずに残した課題。�
 | 6 | 末尾に `/` がない URL（`ankardo.com/play/mml-fm-audio`）では、Workers のルートに当たらずページが開けない | 必要になったら | `wrangler.toml` |
 | 7 | Tab で選んだ鍵盤ボタンを Enter・Space で鳴らす操作は、ヘッドレス Chromium でだけ確かめた。Firefox と Safari では未確認 | 必要になったら | `demo/main.ts` |
 | 8 | GitHub Actions で、Node.js 20 向けの actions（checkout・setup-node・wrangler-action）の非推奨表示が出る。character-tactics も同じ版に固定している | 両リポジトリでまとめて | `.github/workflows/deploy.yml` |
+| 9 | ドラム 8 種が、どれもそれらしく聞こえない（依頼者の試聴、2026-10-21）。M2 では暫定の音でよいと合意済み | M6 | `voices/custom/drums.json` |
