@@ -1,5 +1,5 @@
-import { splitTracks, type TrackSource } from './source.ts';
-import { TICKS_PER_QUARTER, type MmlError, type Song, type Track, type TrackEvent } from './song.ts';
+import { splitTracks, type SourcePosition, type TrackSource } from './source.ts';
+import { TICKS_PER_QUARTER, type MmlError, type Song, type Tempo, type Track, type TrackEvent } from './song.ts';
 
 const DEFAULT_BPM = 120;
 const DEFAULT_OCTAVE = 4;
@@ -8,6 +8,8 @@ const DEFAULT_PROGRAM = 0;
 const DEFAULT_VOLUME = 12;
 const DEFAULT_PAN = 64;
 const MAX_OCTAVE = 8;
+const MAX_GATE_Q = 8;
+const DEFAULT_GATE_Q = 8;
 
 /** 音長の表の数 → ティック（全音符 = 4 * 96） */
 const LENGTH_TABLE = new Map<number, number>(
@@ -15,6 +17,21 @@ const LENGTH_TABLE = new Map<number, number>(
 );
 
 const NOTE_SEMITONES: Record<string, number> = { c: 0, d: 2, e: 4, f: 5, g: 7, a: 9, b: 11 };
+
+type NoteEvent = Extract<TrackEvent, { type: 'note' }>;
+
+/**
+ * 実行できた命令 1 つの記録。`E` より後の命令の検査（Task 5）が、後から tick と元の位置を引くために使う。
+ * tick は命令を実行する前の tick。noteOn は、音符がノートオンする（タイの続きではない）ときだけ true
+ */
+export interface CommandTrace {
+  command: string;
+  tick: number;
+  position: SourcePosition;
+  noteOn: boolean;
+}
+
+interface TempoEntry extends Tempo { position: SourcePosition }
 
 /** 命令の解析で見つけたエラー。報告する列は、原因の位置にかかわらず命令の先頭の文字にそろえる */
 class CommandError extends Error {}
@@ -35,6 +52,17 @@ interface TrackContext {
   volume: number;
   pan: number;
   bend: number;
+  gateQ: number;
+  /** 実行中の命令の先頭の text 上の添字 */
+  commandStart: number;
+  /** 直前の命令が音符のときだけ入る（休符で消える）。& でつなぐ対象 */
+  lastNote: { event: NoteEvent; ticks: number } | null;
+  /** & を読んだ後、次の音符を待っている。pos は & の text 上の添字 */
+  tie: { pos: number } | null;
+  /** いま実行した音符が、タイの続きだった */
+  continuedTie: boolean;
+  /** このトラックのテンポ。同じ tick は後の値 */
+  tempos: TempoEntry[];
 }
 
 type Command = (ctx: TrackContext) => void;
@@ -95,24 +123,43 @@ function note(letter: string): Command {
       if (peek(ctx) === '+' || peek(ctx) === '-') throw new CommandError('+ と - は 1 個までです');
     }
     const number = (ctx.octave + 1) * 12 + semitone;
-    const gate = readDuration(ctx);
+    const ticks = readDuration(ctx);
     if (number < 0 || number > 127) throw new CommandError(`ノート番号 ${number} が 0〜127 の範囲外です`);
-    ctx.events.push({
-      type: 'note',
-      tick: ctx.tick,
-      gate,
-      program: ctx.program,
-      note: number,
-      volume: ctx.volume,
-      pan: ctx.pan,
-      bend: ctx.bend,
-    });
-    ctx.tick += gate;
+    const previous = ctx.lastNote;
+    if (ctx.tie && previous) {
+      if (previous.event.note !== number) {
+        throw new CommandError(`タイの前後でノート番号が違います（${previous.event.note} と ${number}）`);
+      }
+      ctx.tie = null;
+      previous.ticks += ticks;
+      previous.event.gate = gateOf(ctx, previous.ticks);
+      ctx.continuedTie = true;
+    } else {
+      const event: NoteEvent = {
+        type: 'note',
+        tick: ctx.tick,
+        gate: gateOf(ctx, ticks),
+        program: ctx.program,
+        note: number,
+        volume: ctx.volume,
+        pan: ctx.pan,
+        bend: ctx.bend,
+      };
+      ctx.events.push(event);
+      ctx.lastNote = { event, ticks };
+    }
+    ctx.tick += ticks;
   };
+}
+
+/** q を掛けたゲート。切り捨てて、最小 1 ティック。ticks はタイでつないだ全体の長さ */
+function gateOf(ctx: TrackContext, ticks: number): number {
+  return Math.max(1, Math.floor((ticks * ctx.gateQ) / MAX_GATE_Q));
 }
 
 const rest: Command = (ctx) => {
   ctx.tick += readDuration(ctx);
+  ctx.lastNote = null;
 };
 
 const octave: Command = (ctx) => {
@@ -138,6 +185,68 @@ const defaultLength: Command = (ctx) => {
   ctx.defaultLength = readDots(ctx, ticks);
 };
 
+/** 符号なし整数を読み、min〜max の範囲を確かめる */
+function readRanged(ctx: TrackContext, name: string, min: number, max: number): number {
+  const n = readInteger(ctx);
+  if (n === null) throw new CommandError(`${name} の後には ${min}〜${max} の整数を書きます`);
+  if (n < min || n > max) throw new CommandError(`${name}${n} が ${min}〜${max} の範囲外です`);
+  return n;
+}
+
+const programChange: Command = (ctx) => {
+  ctx.program = readRanged(ctx, '@', 0, 127);
+};
+
+const panpot: Command = (ctx) => {
+  ctx.pan = readRanged(ctx, 'p', 0, 127);
+};
+
+const gateTime: Command = (ctx) => {
+  ctx.gateQ = readRanged(ctx, 'q', 1, MAX_GATE_Q);
+};
+
+const volume: Command = (ctx) => {
+  ctx.volume = readRanged(ctx, 'v', 0, 15);
+  ctx.events.push({ type: 'volume', tick: ctx.tick, volume: ctx.volume });
+};
+
+const pitchBend: Command = (ctx) => {
+  const sign = peek(ctx);
+  if (sign !== '+' && sign !== '-') throw new CommandError('B の後には符号つきの整数（B+50、B-50）を書きます');
+  ctx.pos++;
+  const n = readInteger(ctx);
+  if (n === null) throw new CommandError('B の符号の後には整数を書きます');
+  if (n > 1200) throw new CommandError(`B${sign}${n} が -1200〜+1200 の範囲外です`);
+  ctx.bend = sign === '-' ? -n : n;
+  ctx.events.push({ type: 'bend', tick: ctx.tick, cents: ctx.bend });
+};
+
+/** 小数を読む（132.5）。整数部がない、または小数点の後に数字がなければ null */
+function readDecimal(ctx: TrackContext): number | null {
+  const start = ctx.pos;
+  if (readInteger(ctx) === null) return null;
+  if (peek(ctx) === '.') {
+    ctx.pos++;
+    if (readInteger(ctx) === null) return null;
+  }
+  return Number(ctx.source.text.slice(start, ctx.pos));
+}
+
+const tempo: Command = (ctx) => {
+  const bpm = readDecimal(ctx);
+  if (bpm === null) throw new CommandError('t の後には 1〜999 のテンポ（小数可）を書きます');
+  if (bpm < 1 || bpm > 999) throw new CommandError(`テンポ ${bpm} が 1〜999 の範囲外です`);
+  const entry = { tick: ctx.tick, bpm, position: ctx.source.positions[ctx.commandStart] };
+  const same = ctx.tempos.findIndex((t) => t.tick === ctx.tick);
+  if (same >= 0) ctx.tempos[same] = entry;
+  else ctx.tempos.push(entry);
+};
+
+const tie: Command = (ctx) => {
+  if (!ctx.lastNote) throw new CommandError('& の前に音符がありません');
+  ctx.tie = { pos: ctx.commandStart };
+};
+
 /** 命令の先頭の文字 → その命令の解析。後続のタスクは、ここに足す */
 const COMMANDS: Record<string, Command> = {
   c: note('c'), d: note('d'), e: note('e'), f: note('f'), g: note('g'), a: note('a'), b: note('b'),
@@ -146,7 +255,17 @@ const COMMANDS: Record<string, Command> = {
   '<': shiftOctave(-1),
   '>': shiftOctave(1),
   l: defaultLength,
+  '@': programChange,
+  p: panpot,
+  q: gateTime,
+  v: volume,
+  B: pitchBend,
+  t: tempo,
+  '&': tie,
 };
+
+/** & と次の音符の間に書ける命令（音符は別に許す） */
+const TIE_TRANSPARENT = new Set(['B', 'v']);
 
 function isWhitespace(ch: string): boolean {
   return /\s/u.test(ch);
@@ -162,7 +281,14 @@ function skipToNextCommand(ctx: TrackContext, commandStart: number): void {
   }
 }
 
-function parseTrack(source: TrackSource, errors: MmlError[]): Track {
+interface ParsedTrack {
+  track: Track;
+  /** 実行できた命令の記録（tick の順）。E より後の検査（Task 5）が使う */
+  trace: CommandTrace[];
+  tempos: TempoEntry[];
+}
+
+function parseTrack(source: TrackSource, errors: MmlError[]): ParsedTrack {
   const ctx: TrackContext = {
     source,
     pos: 0,
@@ -174,8 +300,20 @@ function parseTrack(source: TrackSource, errors: MmlError[]): Track {
     volume: DEFAULT_VOLUME,
     pan: DEFAULT_PAN,
     bend: 0,
+    gateQ: DEFAULT_GATE_Q,
+    commandStart: 0,
+    lastNote: null,
+    tie: null,
+    continuedTie: false,
+    tempos: [],
   };
   const text = source.text;
+  const trace: CommandTrace[] = [];
+
+  const report = (index: number, message: string): void => {
+    const where = source.positions[index];
+    errors.push({ line: where.line, column: where.column, message });
+  };
 
   while (ctx.pos < text.length) {
     if (isWhitespace(peek(ctx))) {
@@ -183,35 +321,78 @@ function parseTrack(source: TrackSource, errors: MmlError[]): Track {
       continue;
     }
     const start = ctx.pos;
-    const command = Object.hasOwn(COMMANDS, text[start]) ? COMMANDS[text[start]] : undefined;
+    const char = text[start];
+    const command = Object.hasOwn(COMMANDS, char) ? COMMANDS[char] : undefined;
+    // & の次に書けるのは音符・B・v だけ。ほかの命令なら & の位置で報告し、その命令は普通に読む
+    if (ctx.tie && command && !(char in NOTE_SEMITONES) && !TIE_TRANSPARENT.has(char)) {
+      report(ctx.tie.pos, `& の後に音符がありません（間に書けるのは B と v だけです。'${char}' があります）`);
+      ctx.tie = null;
+    }
+    const tickBefore = ctx.tick;
+    ctx.commandStart = start;
+    ctx.continuedTie = false;
     try {
-      if (!command) throw new CommandError(`命令 '${text[start]}' が分かりません`);
+      if (!command) throw new CommandError(`命令 '${char}' が分かりません`);
       ctx.pos++;
       command(ctx);
+      trace.push({
+        command: char,
+        tick: tickBefore,
+        position: source.positions[start],
+        noteOn: char in NOTE_SEMITONES && !ctx.continuedTie,
+      });
     } catch (error) {
       if (!(error instanceof CommandError)) throw error;
-      const where = source.positions[start];
-      errors.push({ line: where.line, column: where.column, message: error.message });
+      report(start, error.message);
+      ctx.tie = null;
       skipToNextCommand(ctx, start);
     }
   }
+  if (ctx.tie) report(ctx.tie.pos, '& の後に音符がありません');
 
-  return { name: source.name, events: ctx.events, length: ctx.tick };
+  return { track: { name: source.name, events: ctx.events, length: ctx.tick }, trace, tempos: ctx.tempos };
+}
+
+/**
+ * 全トラックのテンポを tick の順に集める。違うトラックで同じ tick に違う値があれば、後に出たほうの位置でエラー。
+ * tick 0 になければ既定値を先頭に入れる
+ */
+function mergeTempos(parsed: ParsedTrack[], errors: MmlError[]): Tempo[] {
+  const entries = parsed
+    .flatMap((p) => p.tempos)
+    .sort((x, y) => x.position.line - y.position.line || x.position.column - y.position.column);
+  const byTick = new Map<number, number>();
+  for (const { tick, bpm, position } of entries) {
+    const accepted = byTick.get(tick);
+    if (accepted === undefined) byTick.set(tick, bpm);
+    else if (accepted !== bpm) {
+      errors.push({
+        line: position.line,
+        column: position.column,
+        message: `tick ${tick} のテンポが別のトラックの値（${accepted}）と違います`,
+      });
+    }
+  }
+  const tempos = [...byTick].map(([tick, bpm]) => ({ tick, bpm })).sort((x, y) => x.tick - y.tick);
+  if (tempos.length === 0 || tempos[0].tick !== 0) tempos.unshift({ tick: 0, bpm: DEFAULT_BPM });
+  return tempos;
+}
+
+export function analyzeMml(mml: string): { song: Song; traces: CommandTrace[][] } {
+  const { tracks: sources, errors: nameErrors } = splitTracks(mml);
+  const errors: MmlError[] = [...nameErrors];
+  const parsed = sources.map((source) => parseTrack(source, errors));
+  const tracks = parsed.map((p) => p.track);
+  const tempos = mergeTempos(parsed, errors);
+  const length = tracks.reduce((max, track) => Math.max(max, track.length), 0);
+  errors.sort((x, y) => x.line - y.line || x.column - y.column);
+  return {
+    song: { tracks, tempos, length, loopStart: null, loopEnd: length, errors },
+    traces: parsed.map((p) => p.trace),
+  };
 }
 
 /** MML を解析して Song にする。ブラウザーにも Worklet にも依存しない */
 export function parseMml(mml: string): Song {
-  const { tracks: sources, errors: nameErrors } = splitTracks(mml);
-  const errors: MmlError[] = [...nameErrors];
-  const tracks = sources.map((source) => parseTrack(source, errors));
-  const length = tracks.reduce((max, track) => Math.max(max, track.length), 0);
-  errors.sort((x, y) => x.line - y.line || x.column - y.column);
-  return {
-    tracks,
-    tempos: [{ tick: 0, bpm: DEFAULT_BPM }],
-    length,
-    loopStart: null,
-    loopEnd: length,
-    errors,
-  };
+  return analyzeMml(mml).song;
 }
