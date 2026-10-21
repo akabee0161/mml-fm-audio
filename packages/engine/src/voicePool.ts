@@ -30,15 +30,32 @@ export class VoicePool {
   }
 
   /** 鳴らせたら true。未登録の program は鳴らさず false */
-  noteOn(id: number, program: number, note: number, pan: number): boolean {
+  noteOn(id: number, program: number, note: number, pan: number, volume = 1, bend = 0): boolean {
     const timbre = this.programs.get(program);
     if (!timbre) return false;
     const index = this.allocate();
     if (timbre.kind === 'fm') this.lfo.setRate(timbre.lfo);
-    this.voices[index]!.noteOn(timbre, note, pan);
+    this.voices[index]!.noteOn(timbre, note, pan, volume, bend);
     this.ids[index] = id;
     this.startedAt[index] = ++this.counter;
     return true;
+  }
+
+  /** id の音のピッチベンド（セント）を変える。奪われた・鳴り終えた音なら何もしない */
+  setPitchBend(id: number, cents: number): void {
+    const index = this.ids.indexOf(id);
+    if (index >= 0) this.voices[index]!.setPitchBend(cents);
+  }
+
+  /** id の音の音量（倍率）を変える。奪われた・鳴り終えた音なら何もしない */
+  setVolume(id: number, volume: number): void {
+    const index = this.ids.indexOf(id);
+    if (index >= 0) this.voices[index]!.setVolume(volume);
+  }
+
+  /** ids の音をキーオフする（停止用）。該当なしは無視 */
+  cancel(ids: readonly number[]): void {
+    for (const id of ids) this.noteOff(id);
   }
 
   /** id の音をキーオフする。すでに奪われた・鳴り終えた音なら何もしない */
