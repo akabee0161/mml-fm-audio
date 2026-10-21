@@ -119,6 +119,44 @@ try {
   await page.click('#rhythm');
   check(rhythm > 0.03, `リズムが鳴る（2 小節の最大振幅 ${rhythm.toFixed(3)}）`);
 
+  /** 指定した時間、50 ms ごとに測ったピークの最大 */
+  const maxPeak = async (ms: number) => {
+    let max = 0;
+    for (let i = 0; i < ms / 50; i++) {
+      max = Math.max(max, await peak());
+      await page.waitForTimeout(50);
+    }
+    return max;
+  };
+
+  // MML の欄：試聴曲の再生・再生し直し・停止
+  await page.click('#mml-play');
+  const song = await maxPeak(3000);
+  check(song > 0.03, `MML の試聴曲が鳴る（3 秒間の最大振幅 ${song.toFixed(3)}）`);
+
+  await page.click('#mml-play');
+  const restarted = await maxPeak(2000);
+  check(
+    restarted > 0.03 && pageErrors.length === 0,
+    `再生をもう一度押しても音が出続け、ページのエラーが出ない（最大振幅 ${restarted.toFixed(3)}）`,
+  );
+
+  await page.click('#mml-stop');
+  await waitSilent();
+  const stopped = await peak();
+  check(stopped < 0.001, `停止すると 3 秒以内に無音になる（${stopped.toFixed(4)}）`);
+
+  // エラーの確認の前に停止しておく（エラー時は鳴っている再生を止めない）
+  await page.fill('#mml', 'A c4&d4');
+  await page.click('#mml-play');
+  const errorTexts = await page.locator('#mml-errors li').allTextContents();
+  check(
+    errorTexts.some((t) => t.includes('行 1・列 6')),
+    `違う高さのタイが「行 1・列 6」のエラーとして出る（${errorTexts.join(' / ')}）`,
+  );
+  const afterError = await maxPeak(1000);
+  check(afterError < 0.001, `エラーのある MML は鳴らない（最大振幅 ${afterError.toFixed(4)}）`);
+
   check(pageErrors.length === 0, `ページでエラーが起きていない（${pageErrors.join(' / ')}）`);
 } finally {
   if (browser) await browser.close();
