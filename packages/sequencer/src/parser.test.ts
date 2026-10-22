@@ -564,3 +564,19 @@ describe('parseMml: ドラムトラック R', () => {
     expect(notes('A cd').map((e) => e.note)).toEqual([60, 62]);
   });
 });
+
+describe('parseMml: テンポの登録', () => {
+  it('t を非常に多く書いても解析が終わる（tempos の登録が二乗にならない）', () => {
+    const started = performance.now();
+    const song = parseMml('A [[t120 r%1]250]255');
+    expect(song.errors).toEqual([]);
+    expect(song.tempos).toHaveLength(63750);
+    expect(performance.now() - started).toBeLessThan(3000); // 同期の処理はタイムアウトで止まらないため、経過時間で確かめる
+  });
+
+  it('同じ tick に t を 2 回書くと、後の値が残る', () => {
+    const song = parseMml('A t100 t150 c4 t90 t80');
+    expect(song.errors).toEqual([]);
+    expect(song.tempos).toEqual([{ tick: 0, bpm: 150 }, { tick: 96, bpm: 80 }]);
+  });
+});

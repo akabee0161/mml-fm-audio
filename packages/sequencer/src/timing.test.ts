@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { Timeline, tickToSeconds } from './timing.ts';
+import { parseMml } from './parser.ts';
 
 describe('tickToSeconds', () => {
   it('テンポ 120 で 96 ティックは 0.5 秒', () => {
@@ -57,5 +58,48 @@ describe('Timeline', () => {
     expect(() => tl.seconds(1, 95)).toThrow();
     expect(() => tl.seconds(-1, 0)).toThrow();
     expect(() => tl.seconds(1.5, 100)).toThrow();
+  });
+});
+
+/** 旧実装（先頭からの走査）。二分探索版と同じ値になることの基準 */
+function naiveSeconds(tempos: readonly { tick: number; bpm: number }[], tick: number): number {
+  let seconds = 0;
+  for (let i = 0; i < tempos.length && tempos[i].tick < tick; i++) {
+    const end = i + 1 < tempos.length ? Math.min(tempos[i + 1].tick, tick) : tick;
+    seconds += ((end - tempos[i].tick) * 60) / (96 * tempos[i].bpm);
+  }
+  return seconds;
+}
+
+describe('Timeline：テンポが非常に多い曲', () => {
+  it('テンポ 4 万件・ノート 4 万個の秒の計算が速い', () => {
+    const song = parseMml('A [[t120 c%1]200]200');
+    expect(song.errors).toEqual([]);
+    expect(song.tempos).toHaveLength(40000);
+    const started = performance.now();
+    const tl = new Timeline(song);
+    let sum = 0;
+    for (const ev of song.tracks[0].events) {
+      if (ev.type !== 'note') continue;
+      sum += tl.seconds(0, ev.tick) + tl.seconds(0, ev.tick + ev.gate);
+    }
+    expect(sum).toBeGreaterThan(0);
+    expect(performance.now() - started).toBeLessThan(500); // 同期の処理はタイムアウトで止まらないため、経過時間で確かめる
+  });
+
+  it('テンポ変更の境目（ちょうど・1 つ前・最後のテンポの後ろ）で旧実装と同じ値', () => {
+    const tempos = [{ tick: 0, bpm: 120 }, { tick: 100, bpm: 90 }, { tick: 250, bpm: 77.5 }, { tick: 400, bpm: 200 }];
+    const tl = new Timeline({ tempos, loopStart: null, loopEnd: 1000 });
+    for (const tick of [0, 1, 99, 100, 101, 249, 250, 251, 399, 400, 401, 999]) {
+      expect(tl.seconds(0, tick)).toBe(naiveSeconds(tempos, tick));
+    }
+  });
+
+  it('ループありでも境目で旧実装と同じ値', () => {
+    const tempos = [{ tick: 0, bpm: 120 }, { tick: 100, bpm: 90 }, { tick: 250, bpm: 77.5 }];
+    const tl = new Timeline({ tempos, loopStart: 100, loopEnd: 250 });
+    expect(tl.seconds(0, 250)).toBe(naiveSeconds(tempos, 250));
+    expect(tl.seconds(1, 100)).toBe(naiveSeconds(tempos, 250));
+    expect(tl.seconds(1, 249)).toBeCloseTo(naiveSeconds(tempos, 250) + naiveSeconds(tempos, 249) - naiveSeconds(tempos, 100), 12);
   });
 });

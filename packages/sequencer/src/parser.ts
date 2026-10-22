@@ -279,8 +279,9 @@ const tempo: Command = (ctx) => {
   if (bpm === null) throw new CommandError('t の後には 1〜999 のテンポ（小数可）を書きます');
   if (bpm < 1 || bpm > 999) throw new CommandError(`テンポ ${bpm} が 1〜999 の範囲外です`);
   const entry = { tick: ctx.tick, bpm, position: ctx.source.positions[ctx.commandStart] };
-  const same = ctx.tempos.findIndex((t) => t.tick === ctx.tick);
-  if (same >= 0) ctx.tempos[same] = entry;
+  // 1 トラックの中で tick は減らないので、同じ tick のエントリーがあるとすれば末尾だけ
+  const last = ctx.tempos.length - 1;
+  if (last >= 0 && ctx.tempos[last].tick === ctx.tick) ctx.tempos[last] = entry;
   else ctx.tempos.push(entry);
 };
 
