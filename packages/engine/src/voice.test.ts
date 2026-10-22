@@ -256,3 +256,59 @@ describe('Voice（ドラム）', () => {
     expect(peak(out, 30 * ms, 40 * ms)).toBeLessThan(0.01); // 3 回で終わる
   });
 });
+
+describe('Voice（音量とピッチベンド）', () => {
+  const sine = (): FmVoice => fmVoice(1, [op(), op({ tl: 63 })]);
+  const fmOnlyDrum = (): DrumVoice => drum({ fm: { voice: drumBody(), note: 60, level: 1 } });
+
+  /** setup で鳴らし、steps の各処理を実行してから chunk サンプルずつ左チャンネルを取り出す */
+  function playSteps(setup: (v: Voice) => void, steps: ((v: Voice) => void)[], chunk: number): Float32Array[] {
+    const v = new Voice(SR);
+    setup(v);
+    return steps.map((step) => {
+      step(v);
+      const left = new Float32Array(chunk);
+      const right = new Float32Array(chunk);
+      v.render(left, right, 0, chunk, new Float32Array(chunk));
+      return left;
+    });
+  }
+  const none = (): void => {};
+
+  it('volume 0.5 でピークが半分', () => {
+    const full = playSteps((v) => v.noteOn(sine(), 69, 64, 1), [none], 4800)[0]!;
+    const half = playSteps((v) => v.noteOn(sine(), 69, 64, 0.5), [none], 4800)[0]!;
+    expect(Math.abs(peak(half) / peak(full) - 0.5)).toBeLessThanOrEqual(0.01);
+  });
+
+  it('bend +1200 で周波数が 2 倍', () => {
+    const base = playSteps((v) => v.noteOn(sine(), 69, 64, 1, 0), [none], 4800)[0]!;
+    const up = playSteps((v) => v.noteOn(sine(), 69, 64, 1, 1200), [none], 4800)[0]!;
+    expect(Math.abs(risingZeroCrossings(up) / risingZeroCrossings(base) - 2)).toBeLessThanOrEqual(0.05);
+  });
+
+  it('setPitchBend で鳴っている途中から高さが変わる', () => {
+    const [before, after] = playSteps((v) => v.noteOn(sine(), 69, 64), [none, (v) => v.setPitchBend(1200)], 4800);
+    expect(Math.abs(risingZeroCrossings(after!) / risingZeroCrossings(before!) - 2)).toBeLessThanOrEqual(0.05);
+  });
+
+  it('setVolume で鳴っている途中から音量が変わる', () => {
+    const [before, after] = playSteps((v) => v.noteOn(sine(), 69, 64), [none, (v) => v.setVolume(0.25)], 4800);
+    expect(Math.abs(peak(after!) / peak(before!) - 0.25)).toBeLessThanOrEqual(0.01);
+  });
+
+  it('ドラムは bend と setPitchBend を無視する', () => {
+    const a = playSteps((v) => v.noteOn(fmOnlyDrum(), 60, 64, 1, 0), [none], 2400)[0]!;
+    const b = playSteps((v) => v.noteOn(fmOnlyDrum(), 60, 64, 1, 1200), [none], 2400)[0]!;
+    const c = playSteps((v) => v.noteOn(fmOnlyDrum(), 60, 64, 1, 0), [(v) => v.setPitchBend(1200)], 2400)[0]!;
+    expect(peak(a)).toBeGreaterThan(0);
+    expect(Array.from(b)).toEqual(Array.from(a));
+    expect(Array.from(c)).toEqual(Array.from(a));
+  });
+
+  it('ドラムでも volume は効く', () => {
+    const full = playSteps((v) => v.noteOn(fmOnlyDrum(), 60, 64, 1), [none], 2400)[0]!;
+    const half = playSteps((v) => v.noteOn(fmOnlyDrum(), 60, 64, 0.5), [none], 2400)[0]!;
+    expect(Math.abs(peak(half) / peak(full) - 0.5)).toBeLessThanOrEqual(0.01);
+  });
+});

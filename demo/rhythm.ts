@@ -1,5 +1,6 @@
-/** ドラムの番号（設計書 §5。spec §3.4 の表の順） */
-export const DRUM_PROGRAMS = { bd: 128, sd: 129, ch: 130, oh: 131, cy: 132, lt: 133, ht: 134, cp: 135 } as const;
+import { DRUM_PROGRAMS } from '@mml-fm-audio/sequencer';
+
+export { DRUM_PROGRAMS };
 
 export type DrumName = keyof typeof DRUM_PROGRAMS;
 

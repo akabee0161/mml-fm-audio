@@ -135,4 +135,36 @@ describe('VoicePool', () => {
     two.noteOn(2, 0, 72, 127);
     expect(Array.from(render(two, 4800).left)).toEqual(Array.from(render(one, 4800).left));
   });
+
+  it('setPitchBend・setVolume は奪われた ID では何もしない', () => {
+    const make = (): VoicePool => {
+      const pool = new VoicePool(SR);
+      pool.register(0, sustain);
+      for (let id = 1; id <= 17; id++) pool.noteOn(id, 0, 48 + id, 64);
+      return pool;
+    };
+    const expected = render(make(), 480).left;
+    const pool = make();
+    pool.setVolume(1, 0);
+    pool.setPitchBend(1, 1200);
+    expect(Array.from(render(pool, 480).left)).toEqual(Array.from(expected));
+  });
+
+  it('setVolume は該当する ID の音量を変える', () => {
+    const pool = new VoicePool(SR);
+    pool.register(0, sustain);
+    pool.noteOn(1, 0, 60, 64);
+    pool.setVolume(1, 0);
+    expect(Math.max(...render(pool, 480).left.map(Math.abs))).toBe(0);
+  });
+
+  it('cancel はその ID の音をキーオフする', () => {
+    const pool = new VoicePool(SR);
+    pool.register(0, sustain);
+    pool.noteOn(1, 0, 60, 64);
+    pool.noteOn(2, 0, 64, 64);
+    pool.cancel([2, 99]);
+    render(pool, 4000);
+    expect(pool.activeCount).toBe(1);
+  });
 });

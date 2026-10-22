@@ -45,8 +45,8 @@ describe('FmEngine', () => {
     expect(engine.noteOn(0, 60, { time: 100 })).toBe(1);
     expect(engine.noteOn(128, 36, { pan: 10, time: 200 })).toBe(2);
     expect(node.sent).toEqual([
-      { type: 'noteOn', id: 1, program: 0, note: 60, pan: 64, time: 100 },
-      { type: 'noteOn', id: 2, program: 128, note: 36, pan: 10, time: 200 },
+      { type: 'noteOn', id: 1, program: 0, note: 60, pan: 64, volume: 1, bend: 0, time: 100 },
+      { type: 'noteOn', id: 2, program: 128, note: 36, pan: 10, volume: 1, bend: 0, time: 200 },
     ]);
   });
 
@@ -116,9 +116,39 @@ describe('FmEngine', () => {
     const id = engine.noteOn(0, 60, { time: 10.5 });
     engine.noteOff(id, 20.4);
     expect(node.sent).toEqual([
-      { type: 'noteOn', id, program: 0, note: 60, pan: 64, time: 11 },
+      { type: 'noteOn', id, program: 0, note: 60, pan: 64, volume: 1, bend: 0, time: 11 },
       { type: 'noteOff', id, time: 20 },
     ]);
+  });
+
+  it('noteOn は volume と bend を送る', async () => {
+    const { engine, node } = await createEngine();
+    const id = engine.noteOn(0, 60, { volume: 0.5, bend: -100, time: 10 });
+    expect(node.sent).toEqual([{ type: 'noteOn', id, program: 0, note: 60, pan: 64, volume: 0.5, bend: -100, time: 10 }]);
+  });
+
+  it('setPitchBend・setVolume・cancel のメッセージを送る', async () => {
+    const { engine, node } = await createEngine();
+    engine.setPitchBend(3, 50, 100);
+    engine.setVolume(3, 0.25, 100);
+    engine.cancel([1, 2]);
+    expect(node.sent).toEqual([
+      { type: 'setPitchBend', id: 3, cents: 50, time: 100 },
+      { type: 'setVolume', id: 3, volume: 0.25, time: 100 },
+      { type: 'cancel', ids: [1, 2] },
+    ]);
+  });
+
+  it('音量・ピッチベンド・取り消しの引数が範囲外なら RangeError を投げ、何も送らない', async () => {
+    const { engine, node } = await createEngine();
+    expect(() => engine.noteOn(0, 60, { volume: 1.5 })).toThrow(RangeError);
+    expect(() => engine.noteOn(0, 60, { bend: 1201 })).toThrow(RangeError);
+    expect(() => engine.setPitchBend(1.5, 0)).toThrow(/setPitchBend/);
+    expect(() => engine.setPitchBend(1, -1201)).toThrow(RangeError);
+    expect(() => engine.setVolume(1, NaN)).toThrow(/setVolume/);
+    expect(() => engine.setVolume(1, 0.5, Infinity)).toThrow(RangeError);
+    expect(() => engine.cancel([1, 2.5])).toThrow(/cancel/);
+    expect(node.sent).toHaveLength(0);
   });
 
   it('registerVoice: FM 音色は 0〜127、ドラムは 128〜255 にしか登録できない', async () => {

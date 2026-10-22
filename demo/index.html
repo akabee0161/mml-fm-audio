@@ -34,6 +34,14 @@
         <div class="row">
           <button id="rhythm" type="button">リズムを鳴らす</button>
         </div>
+        <h2>MML</h2>
+        <textarea id="mml" rows="16" spellcheck="false"></textarea>
+        <div class="row">
+          <button id="mml-play" type="button">再生</button>
+          <button id="mml-stop" type="button">停止</button>
+        </div>
+        <ul id="mml-errors" class="errors"></ul>
+        <p class="hint">最初に入っているのは、設計者が作った試聴曲です（テンポ 120（14 小節目だけ 112）、4/4 拍子、14 小節）。3 小節目から最後までを繰り返します。行頭の A・B・C1〜C3・R がトラックで、R がドラムです。@N は音色番号で、同梱の GM 音色にない番号は警告に出ます。</p>
         <h2>負荷</h2>
         <label><input id="load-toggle" type="checkbox" /> 負荷を表示</label>
         <pre id="load" class="load" hidden></pre>

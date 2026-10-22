@@ -9,6 +9,7 @@ import {
   type LoadReport,
   type ValidationError,
 } from '@mml-fm-audio/engine';
+import { Player, parseMml } from '@mml-fm-audio/sequencer';
 import drumData from '../voices/custom/drums.json';
 import gmVoices from '../voices/ymf825/gm.json';
 import unassignedVoices from '../voices/ymf825/unassigned.json';
@@ -23,6 +24,7 @@ import {
   parseVoiceJson,
   shiftBase,
 } from './keyboard';
+import demoSong from './songs/m3-demo.mml?raw';
 import { renderParams } from './params';
 import { catchUpBar, scheduleBar } from './rhythm';
 
@@ -38,13 +40,20 @@ interface NavigatorWithAudioSession extends Navigator {
 }
 
 const OCTAVES = 2;
-/** 鍵盤と 16 音ボタンで使う音色の番号。選んだ音色をここへ登録し直す */
-const KEYBOARD_PROGRAM = 0;
+/**
+ * 鍵盤と 16 音ボタンで使う音色の番号。選んだ音色をここへ登録し直す。
+ * 同梱の GM 音色に 127 番はなく、MML の @0 などとぶつからない
+ */
+const KEYBOARD_PROGRAM = 127;
 /** 16 音ボタンの最低音（C3） */
 const POLY_TEST_BASE = 48;
 const RHYTHM_BPM = 120;
 const RHYTHM_TICK_MS = 25;
 const RHYTHM_LOOKAHEAD_SEC = 0.1;
+const MML_TICK_MS = 25;
+const MML_LOOKAHEAD_SEC = 0.1;
+/** 再生ボタンから曲の頭までの余裕 */
+const MML_START_DELAY_SEC = 0.05;
 
 const DRUM_LABELS: Readonly<Record<string, string>> = {
   bd: 'バスドラム',
@@ -115,6 +124,57 @@ function formatLoad(report: LoadReport): string {
     `鳴っていたボイス数（最大） ${report.maxVoices}`,
     `時計 ${clock}`,
   ].join('\n');
+}
+
+/** MML の欄：解析してエラーを出し、なければ Player で先読みして鳴らす */
+function setupMml(engine: FmEngine, context: AudioContext, wake: () => void): void {
+  const textarea = byId<HTMLTextAreaElement>('mml');
+  const errorList = byId('mml-errors');
+  let player: Player | undefined;
+  let timer: number | undefined;
+
+  textarea.value = demoSong;
+
+  const stopTimer = () => {
+    if (timer !== undefined) {
+      window.clearInterval(timer);
+      timer = undefined;
+    }
+  };
+  const stop = () => {
+    stopTimer();
+    player?.stop();
+    player = undefined;
+  };
+
+  byId('mml-play').addEventListener('click', () => {
+    wake();
+    const song = parseMml(textarea.value);
+    if (song.errors.length > 0) {
+      // エラーが 1 つでもあれば再生しない。鳴っている再生も止める
+      stop();
+      listItems(errorList, song.errors.map((e) => `行 ${e.line}・列 ${e.column}：${e.message}`));
+      return;
+    }
+    listItems(errorList, []);
+    stop();
+    const rate = context.sampleRate;
+    const current = new Player(engine, song, {
+      sampleRate: rate,
+      startFrame: Math.round((context.currentTime + MML_START_DELAY_SEC) * rate),
+    });
+    player = current;
+    const tick = () => {
+      const now = context.currentTime * rate;
+      current.pump(now, now + MML_LOOKAHEAD_SEC * rate);
+      // 終わった曲は、送り済みの最後の音が鳴り終わるまで cancel せず、タイマーだけ止める
+      if (current.finished && player === current) stopTimer();
+    };
+    tick();
+    if (player === current) timer = window.setInterval(tick, MML_TICK_MS);
+  });
+
+  byId('mml-stop').addEventListener('click', stop);
 }
 
 function setup(engine: FmEngine, context: AudioContext): void {
@@ -206,6 +266,16 @@ function setup(engine: FmEngine, context: AudioContext): void {
     });
     byId('drums').appendChild(button);
   }
+
+  // MML の @N で使う GM 音色を、それぞれの id に登録する（ドラムは上で 128〜135 に登録済み）
+  for (const raw of gmVoices) {
+    const result = validateVoice(raw);
+    if (!result.ok) continue; // bundledVoices() がすでにエラーを出している
+    const id = result.voice.id;
+    if (id !== null && Number.isInteger(id) && id >= 0 && id <= 127 && id !== KEYBOARD_PROGRAM) engine.registerVoice(id, result.voice);
+  }
+
+  setupMml(engine, context, wake);
 
   engine.onWarning((message) => {
     const li = document.createElement('li');

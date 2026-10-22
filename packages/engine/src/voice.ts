@@ -24,6 +24,8 @@ export class Voice {
   private alg: Algorithm | null = null;
   private fmLevel = 1;
   private isDrum = false;
+  private panLeft = 0;
+  private panRight = 0;
   private gainLeft = 0;
   private gainRight = 0;
 
@@ -42,6 +44,8 @@ export class Voice {
   private pitchDiff = 0;
   private pitchDecay = 1;
   private hasPitch = false;
+  // ピッチベンド（FM）：全オペレーターの周波数にかける倍率
+  private bendRatio = 1;
 
   // ノイズ部（ドラム）
   private noiseParams: DrumNoise | null = null;
@@ -56,21 +60,27 @@ export class Voice {
     this.noiseEnvelope = new Envelope(sampleRate);
   }
 
-  /** timbre を note の高さで、pan（0〜127）の位置に鳴らす。鳴っていた音は切る。ドラムは note を使わない */
-  noteOn(timbre: AnyVoice, note: number, pan: number): void {
+  /**
+   * timbre を note の高さで、pan（0〜127）の位置に鳴らす。鳴っていた音は切る。ドラムは note・bend を使わない。
+   * volume は出力にかける倍率（既定 1）、bend は音程のずれ（セント、既定 0）
+   */
+  noteOn(timbre: AnyVoice, note: number, pan: number, volume = 1, bend = 0): void {
     this.stop();
-    [this.gainLeft, this.gainRight] = panGains(pan);
+    [this.panLeft, this.panRight] = panGains(pan);
+    this.setVolume(volume);
 
     if (timbre.kind === 'fm') {
       this.isDrum = false;
       this.fmLevel = 1;
       this.hasPitch = false;
       this.noiseParams = null;
+      this.bendRatio = 2 ** (bend / 1200);
       this.startFm(timbre, note);
       return;
     }
 
     this.isDrum = true;
+    this.bendRatio = 1;
     this.fm = null;
     this.alg = null;
     if (timbre.fm) {
@@ -91,6 +101,18 @@ export class Voice {
       this.repeatInterval = repeat ? Math.max(1, Math.round((repeat.intervalMs * this.sampleRate) / 1000)) : 0;
       this.repeatCounter = 0;
     }
+  }
+
+  /** FM の全オペレーターの周波数を 2^(cents/1200) 倍にする。位相は続ける。ドラムでは何もしない */
+  setPitchBend(cents: number): void {
+    if (this.isDrum) return;
+    this.bendRatio = 2 ** (cents / 1200);
+  }
+
+  /** 出力にかける倍率を変える（左右のパンの係数にかける） */
+  setVolume(volume: number): void {
+    this.gainLeft = this.panLeft * volume;
+    this.gainRight = this.panRight * volume;
   }
 
   /** キーオフ。ドラムは無視して、エンベロープが尽きるまで鳴る */
@@ -195,7 +217,7 @@ export class Voice {
         this.feedbackPrev1[i] = value;
       }
 
-      let inc = this.increment[i]! * pitchRatio;
+      let inc = this.increment[i]! * pitchRatio * this.bendRatio;
       if (op.vib) inc *= 2 ** ((lfo * VIB_DEPTH_CENTS[op.vibDepth]!) / 1200);
       this.phase[i] = (this.phase[i]! + inc) % 1;
     }

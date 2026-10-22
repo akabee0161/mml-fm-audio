@@ -47,22 +47,41 @@ class FmProcessor extends AudioWorkletProcessor {
         if (message.enabled && !this.loadReport) this.meter.reset();
         this.loadReport = message.enabled;
         break;
+      case 'cancel': {
+        const ids = new Set(message.ids);
+        this.queue.removeWhere((event) => ids.has(event.id));
+        this.pool.cancel(message.ids);
+        break;
+      }
       case 'noteOn':
       case 'noteOff':
+      case 'setPitchBend':
+      case 'setVolume':
         this.queue.push(message);
         break;
     }
   }
 
   private apply(message: TimedMessage): void {
-    if (message.type === 'noteOff') {
-      this.pool.noteOff(message.id);
-    } else if (!this.pool.noteOn(message.id, message.program, message.note, message.pan)) {
-      // 繰り返し鳴らす曲で警告があふれないよう、番号ごとに 1 回だけ出す（登録し直すまで）
-      if (!this.warnedPrograms.has(message.program)) {
-        this.warnedPrograms.add(message.program);
-        this.reply({ type: 'warning', message: `音色 ${message.program} は登録されていません` });
-      }
+    switch (message.type) {
+      case 'noteOff':
+        this.pool.noteOff(message.id);
+        break;
+      case 'setPitchBend':
+        this.pool.setPitchBend(message.id, message.cents);
+        break;
+      case 'setVolume':
+        this.pool.setVolume(message.id, message.volume);
+        break;
+      case 'noteOn':
+        if (!this.pool.noteOn(message.id, message.program, message.note, message.pan, message.volume, message.bend)) {
+          // 繰り返し鳴らす曲で警告があふれないよう、番号ごとに 1 回だけ出す（登録し直すまで）
+          if (!this.warnedPrograms.has(message.program)) {
+            this.warnedPrograms.add(message.program);
+            this.reply({ type: 'warning', message: `音色 ${message.program} は登録されていません` });
+          }
+        }
+        break;
     }
   }
 
