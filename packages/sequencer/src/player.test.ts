@@ -191,6 +191,18 @@ describe('Player', () => {
     expect(calls.find((c) => c.type === 'cancel')).toEqual({ type: 'cancel', ids: [1, 2] });
   });
 
+  it('sent から捨てられたノートにも、後の pump で setPitchBend が届く', () => {
+    const { player, calls } = make('A c4 r4 B+50');
+    const sent = () => (player as unknown as { sent: unknown[] }).sent.length;
+    player.pump(0, 10000);
+    expect(sent()).toBe(1);
+    player.pump(30000, 40000); // c のノートオフ（24000）が過ぎ、B（48000）はまだ先
+    expect(sent()).toBe(0);
+    expect(calls.filter((c) => c.type === 'bend')).toEqual([]);
+    player.pump(40000, 60000);
+    expect(calls.filter((c) => c.type === 'bend')).toEqual([{ type: 'bend', id: 1, cents: 50, time: 48000 }]);
+  });
+
   it('過ぎた時刻でも、送ったノートのノートオフは送る', () => {
     const { player, calls } = make('A c d');
     player.pump(0, 1000);
