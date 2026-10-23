@@ -181,6 +181,16 @@ describe('Player', () => {
     expect(calls.find((c) => c.type === 'cancel')).toEqual({ type: 'cancel', ids: [2, 3] });
   });
 
+  it('ノートオフの時刻ちょうどを nowFrame にした pump では、そのノートを捨てず、停止で cancel する', () => {
+    const { player, calls } = make('A c d');
+    const sent = () => (player as unknown as { sent: unknown[] }).sent.length;
+    player.pump(0, 60000);
+    player.pump(24000, 60000); // c のノートオフは 24000 ちょうど
+    expect(sent()).toBe(2);
+    player.stop();
+    expect(calls.find((c) => c.type === 'cancel')).toEqual({ type: 'cancel', ids: [1, 2] });
+  });
+
   it('過ぎた時刻でも、送ったノートのノートオフは送る', () => {
     const { player, calls } = make('A c d');
     player.pump(0, 1000);
