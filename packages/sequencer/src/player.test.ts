@@ -166,6 +166,43 @@ describe('Player', () => {
     expect(cancel).toEqual({ type: 'cancel', ids: [2] });
   });
 
+  it('ループを何周も回しても、送り済みの一覧は周回数に比例して増えない', () => {
+    const { player } = make('A L c');
+    const sent = () => (player as unknown as { sent: unknown[] }).sent.length;
+    for (let now = 0; now < 100 * 24000; now += 128) player.pump(now, now + 4800);
+    expect(sent()).toBeLessThanOrEqual(2);
+  });
+
+  it('ノートオフが過ぎたノートを捨てても、停止では持続中のノートと先読みで送り済みの未来のノートを cancel する', () => {
+    const { player, calls } = make('A c d e f');
+    player.pump(0, 60000);
+    player.pump(30000, 60000);
+    player.stop();
+    expect(calls.find((c) => c.type === 'cancel')).toEqual({ type: 'cancel', ids: [2, 3] });
+  });
+
+  it('ノートオフの時刻ちょうどを nowFrame にした pump では、そのノートを捨てず、停止で cancel する', () => {
+    const { player, calls } = make('A c d');
+    const sent = () => (player as unknown as { sent: unknown[] }).sent.length;
+    player.pump(0, 60000);
+    player.pump(24000, 60000); // c のノートオフは 24000 ちょうど
+    expect(sent()).toBe(2);
+    player.stop();
+    expect(calls.find((c) => c.type === 'cancel')).toEqual({ type: 'cancel', ids: [1, 2] });
+  });
+
+  it('sent から捨てられたノートにも、後の pump で setPitchBend が届く', () => {
+    const { player, calls } = make('A c4 r4 B+50');
+    const sent = () => (player as unknown as { sent: unknown[] }).sent.length;
+    player.pump(0, 10000);
+    expect(sent()).toBe(1);
+    player.pump(30000, 40000); // c のノートオフ（24000）が過ぎ、B（48000）はまだ先
+    expect(sent()).toBe(0);
+    expect(calls.filter((c) => c.type === 'bend')).toEqual([]);
+    player.pump(40000, 60000);
+    expect(calls.filter((c) => c.type === 'bend')).toEqual([{ type: 'bend', id: 1, cents: 50, time: 48000 }]);
+  });
+
   it('過ぎた時刻でも、送ったノートのノートオフは送る', () => {
     const { player, calls } = make('A c d');
     player.pump(0, 1000);
