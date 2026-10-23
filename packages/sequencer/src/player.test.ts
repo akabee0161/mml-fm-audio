@@ -166,6 +166,21 @@ describe('Player', () => {
     expect(cancel).toEqual({ type: 'cancel', ids: [2] });
   });
 
+  it('ループを何周も回しても、送り済みの一覧は周回数に比例して増えない', () => {
+    const { player } = make('A L c');
+    const sent = () => (player as unknown as { sent: unknown[] }).sent.length;
+    for (let now = 0; now < 100 * 24000; now += 128) player.pump(now, now + 4800);
+    expect(sent()).toBeLessThanOrEqual(2);
+  });
+
+  it('ノートオフが過ぎたノートを捨てても、停止では持続中のノートと先読みで送り済みの未来のノートを cancel する', () => {
+    const { player, calls } = make('A c d e f');
+    player.pump(0, 60000);
+    player.pump(30000, 60000);
+    player.stop();
+    expect(calls.find((c) => c.type === 'cancel')).toEqual({ type: 'cancel', ids: [2, 3] });
+  });
+
   it('過ぎた時刻でも、送ったノートのノートオフは送る', () => {
     const { player, calls } = make('A c d');
     player.pump(0, 1000);

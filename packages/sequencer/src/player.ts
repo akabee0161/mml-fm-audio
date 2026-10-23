@@ -84,6 +84,10 @@ export class Player {
     let i = 0;
     for (; i < this.queue.length && this.queue[i].frame < horizonFrame; i++) this.send(this.queue[i], nowFrame);
     this.queue.splice(0, i);
+    // ノートオフが過ぎたノートは stop() でも cancel しない（offFrame >= lastNowFrame だけが対象）ので捨てる
+    let kept = 0;
+    for (const n of this.sent) if (n.offFrame >= nowFrame) this.sent[kept++] = n;
+    this.sent.length = kept;
   }
 
   /** 送ったノートのうち、ノートオフの時刻が過ぎていないものを cancel し、以後は何も送らない */
