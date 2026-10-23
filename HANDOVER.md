@@ -1,4 +1,4 @@
-# 引き継ぎ（2026-10-22）
+# 引き継ぎ（2026-10-23）
 
 次のセッションが作業を再開するためのメモ。今の状態・使い方の正典は `README.md` と `CLAUDE.md`、課題は `ISSUES.md`。
 
@@ -15,7 +15,8 @@
 - 公開は `main` への push で GitHub Actions が行う。secrets（`CLOUDFLARE_API_TOKEN`・`CLOUDFLARE_ACCOUNT_ID`）は依頼者が設定済み。environment `production` は、初回のデプロイで自動作成された。
 - 直さずに残した課題は `ISSUES.md` にある。直す時期は依頼者と合意済み。
 
-- M3（MML の全命令とループ）は、実装・レビュー・マージまで完了。PR #3 でマージ済み（67b61e8、2026-10-22）、GitHub Actions のデプロイは成功し、https://ankardo.com/play/mml-fm-audio/ に公開済み。CodeRabbit は承認した。**依頼者による公開後の確認（設計書 §1.1 の確認 1〜6）はまだ。**
+- M3（MML の全命令とループ）は、実装・レビュー・マージまで完了。PR #3 でマージ済み（67b61e8、2026-10-22）、GitHub Actions のデプロイは成功し、https://ankardo.com/play/mml-fm-audio/ に公開済み。CodeRabbit は承認した。
+  - 依頼者が公開後に設計書 §1.1 の確認 1〜6 を行い、すべて問題なしとした（2026-10-23）。確認 5 で停止後に残って聞こえるのは、ノートオフ後のリリースで、設計どおり（停止は送り済みの予約を捨て、鳴っている音をキーオフする。設計書 §4）。
   - 文法の文書：`docs/mml.md`（新規）。`docs/spec.md` は v0.4 に更新した。
   - 作ったもの：音源への音量・ピッチベンド・予約の取り消し、`packages/sequencer`（`parseMml`・`Timeline`・`Player`）、試聴ページの MML の欄と曲 `demo/songs/m3-demo.mml`、`npm run check:browser` の MML の確認。
   - 設計：`docs/superpowers/specs/2026-10-21-m3-sequencer-design.md`（依頼者が読んで承認した）
@@ -28,15 +29,8 @@
 
 ## 次にやること
 
-1. 公開した試聴ページ（https://ankardo.com/play/mml-fm-audio/）で、依頼者が設計書 §1.1 の確認 1〜6 を行う。結果を聞いたら、この引き継ぎに反映する。問題が出たら、内容によって `ISSUES.md` に立てるか、修正ブランチを切る：
-   1. 手書きの曲が鳴り、`L` の位置から繰り返す（イントロは 1 回だけ。ループ終了を越える弱起のノートが、戻った後も持続する）
-   2. 欄の MML を書き換えて鳴らせる
-   3. 書き間違い（`c4&d4`、`[cdef]` など）が、行・列・理由つきのエラーとして出る
-   4. 音量・パン・ピッチベンド・`q` が効く（曲の中の箇所は、曲のコメントに書いてある）
-   5. 再生中に停止を押すと音が残らない
-   6. M2 までの機能（鍵盤、16 音、ドラム、リズム、負荷の表示）が壊れていない
-2. 次は M4（runtime：API、効果音の同時再生、音量・フェード）。エラーのあったトラックだけを無音にする動きと設定の切り替え、ループの回数の指定（`playBgm` の `loop`）も M4 で扱う。設計 → 計画 → 実装の順（brainstorming から）。M4 を始める前に `ISSUES.md` #10（`Player` の `sent` が増え続ける）を直す。M4 で公開 API にするときは、`FmEngine.cancel` の引数検査（配列でない値）と `operatorFrequency`・`waveValue` の範囲検査（`ISSUES.md` #5）も入れる。
-3. 依頼者への返事待ちが 1 つ：CodeRabbit が提案した「ドラムの余韻を M6 の試聴確認項目にするフォローアップ Issue」を作るか。私の考えは、`ISSUES.md` #9（ドラム 8 種の調整）に含まれるので作らない。
+1. 次は M4（runtime：API、効果音の同時再生、音量・フェード）。エラーのあったトラックだけを無音にする動きと設定の切り替え、ループの回数の指定（`playBgm` の `loop`）も M4 で扱う。設計 → 計画 → 実装の順（brainstorming から）。M4 を始める前に `ISSUES.md` #10（`Player` の `sent` が増え続ける）を直す。M4 で公開 API にするときは、`FmEngine.cancel` の引数検査（配列でない値）と `operatorFrequency`・`waveValue` の範囲検査（`ISSUES.md` #5）も入れる。
+2. 依頼者への返事待ちが 1 つ：CodeRabbit が提案した「ドラムの余韻を M6 の試聴確認項目にするフォローアップ Issue」を作るか。私の考えは、`ISSUES.md` #9（ドラム 8 種の調整）に含まれるので作らない。
 
 ## M3 の作業で分かったこと（次のセッション向け）
 
