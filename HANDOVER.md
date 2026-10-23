@@ -29,7 +29,7 @@
 
 ## 次にやること
 
-1. 次は M4（runtime：API、効果音の同時再生、音量・フェード）。エラーのあったトラックだけを無音にする動きと設定の切り替え、ループの回数の指定（`playBgm` の `loop`）も M4 で扱う。設計 → 計画 → 実装の順（brainstorming から）。M4 で公開 API にするときは、`FmEngine.cancel` の引数検査（配列でない値）と `operatorFrequency`・`waveValue` の範囲検査（`ISSUES.md` #5）も入れる。
+1. 次は M4（runtime：API、効果音の同時再生、音量・フェード）。エラーのあったトラックだけを無音にする動きと設定の切り替え、ループの回数の指定（`playBgm` の `loop`）も M4 で扱う。設計 → 計画 → 実装の順（brainstorming から）。M4 で公開 API にするときは、`FmEngine.cancel` の引数検査（配列でない値）と `operatorFrequency`・`waveValue` の範囲検査（`ISSUES.md` #5）も入れる。`Player` を公開 API にする前に、ループの各周回の頭でメインスレッドが止まる件（`ISSUES.md` #11）も直す。
 
 ## M3 の作業で分かったこと（次のセッション向け）
 
