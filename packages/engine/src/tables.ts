@@ -61,7 +61,8 @@ export function operatorFrequency(note: number, bo: number, mul: number, dt: num
   checkInt('mul', mul, 15);
   checkInt('dt', dt, 7);
   const base = 440 * 2 ** ((note - 69) / 12);
-  return base * BO_TABLE[bo] * MUL_TABLE[mul] * 2 ** (DT_CENTS[dt] / 1200);
+  // 添字は checkInt で表の範囲に収めてある
+  return base * BO_TABLE[bo]! * MUL_TABLE[mul]! * 2 ** (DT_CENTS[dt]! / 1200);
 }
 
 /** 全ボイスの左右の和に掛ける係数（暫定。中央の 1 音は M1 の約 0.35 倍になる） */

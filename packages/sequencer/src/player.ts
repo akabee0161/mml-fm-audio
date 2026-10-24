@@ -57,7 +57,7 @@ function firstIndexAtOrAfter(events: readonly { tick: number }[], tick: number):
   let hi = events.length;
   while (lo < hi) {
     const mid = (lo + hi) >> 1;
-    if (events[mid].tick < tick) lo = mid + 1;
+    if (events[mid]!.tick < tick) lo = mid + 1;
     else hi = mid;
   }
   return lo;
@@ -81,8 +81,9 @@ class ActionHeap {
     items.push(a);
     while (i > 0) {
       const parent = (i - 1) >> 1;
-      if (compare(items[parent], a) <= 0) break;
-      items[i] = items[parent];
+      const p = items[parent]!;
+      if (compare(p, a) <= 0) break;
+      items[i] = p;
       i = parent;
     }
     items[i] = a;
@@ -97,9 +98,10 @@ class ActionHeap {
     for (;;) {
       let child = 2 * i + 1;
       if (child >= items.length) break;
-      if (child + 1 < items.length && compare(items[child + 1], items[child]) < 0) child++;
-      if (compare(items[child], last) >= 0) break;
-      items[i] = items[child];
+      if (child + 1 < items.length && compare(items[child + 1]!, items[child]!) < 0) child++;
+      const c = items[child]!;
+      if (compare(c, last) >= 0) break;
+      items[i] = c;
       i = child;
     }
     items[i] = last;
@@ -150,7 +152,7 @@ export class Player {
 
   constructor(engine: EngineLike, song: Song, options: PlayerOptions) {
     if (song.errors.length > 0) {
-      const e = song.errors[0];
+      const e = song.errors[0]!;
       throw new Error(`エラーのある曲は再生できません（${song.errors.length} 件。最初：${e.line} 行 ${e.column} 列 ${e.message}）`);
     }
     this.engine = engine;
@@ -274,11 +276,11 @@ export class Player {
 
   /** トラック t の、時刻が horizonFrame より前のイベントをアクションにして待ち行列に入れる */
   private generate(t: number, horizonFrame: number): void {
-    const cursor = this.cursors[t];
-    const events = this.song.tracks[t].events;
+    const cursor = this.cursors[t]!;
+    const events = this.song.tracks[t]!.events;
     const loopStart = this.loopStart;
     while (!cursor.done) {
-      if (cursor.index >= events.length || (loopStart !== null && events[cursor.index].tick >= this.loopEnd)) {
+      if (cursor.index >= events.length || (loopStart !== null && events[cursor.index]!.tick >= this.loopEnd)) {
         // 周の終わり。ループしない曲はここで終わり、ループする曲は次の周の loopStart 以上の最初のイベントへ移る。
         // pass 1 以降は loopStart 未満のイベントを送らない（L の前から持続中のノートを鳴らし直さない）
         if (loopStart === null) {
@@ -292,7 +294,7 @@ export class Player {
         if (this.passStartFrame(cursor.pass) >= horizonFrame) return;
         continue;
       }
-      const ev = events[cursor.index];
+      const ev = events[cursor.index]!; // 上で index < events.length を確かめた
       const frame = this.frame(cursor.pass, ev.tick);
       if (frame >= horizonFrame) return;
       cursor.index++;

@@ -133,7 +133,7 @@ function readDuration(ctx: TrackContext): number {
 
 function note(letter: string): Command {
   return (ctx) => {
-    let semitone = NOTE_SEMITONES[letter];
+    let semitone = NOTE_SEMITONES[letter]!; // letter は音名の表にある文字だけ
     const sign = peek(ctx);
     if (sign === '+' || sign === '-') {
       ctx.pos++;
@@ -278,10 +278,10 @@ const tempo: Command = (ctx) => {
   const bpm = readDecimal(ctx);
   if (bpm === null) throw new CommandError('t の後には 1〜999 のテンポ（小数可）を書きます');
   if (bpm < 1 || bpm > 999) throw new CommandError(`テンポ ${bpm} が 1〜999 の範囲外です`);
-  const entry = { tick: ctx.tick, bpm, position: ctx.source.positions[ctx.commandStart] };
+  const entry = { tick: ctx.tick, bpm, position: ctx.source.positions[ctx.commandStart]! };
   // 1 トラックの中で tick は減らないので、同じ tick のエントリーがあるとすれば末尾だけ
   const last = ctx.tempos.length - 1;
-  if (last >= 0 && ctx.tempos[last].tick === ctx.tick) ctx.tempos[last] = entry;
+  if (ctx.tempos[last]?.tick === ctx.tick) ctx.tempos[last] = entry;
   else ctx.tempos.push(entry);
 };
 
@@ -367,8 +367,10 @@ function lookupCommand(ctx: TrackContext, start: number): { name: string; length
     if (command) return { name, length: 2, command };
   }
   const char = text[start];
+  if (char === undefined) return undefined;
   const table = ctx.drumTrack ? DRUM_COMMANDS : COMMANDS;
-  return Object.hasOwn(table, char) ? { name: char, length: 1, command: table[char] } : undefined;
+  const command = Object.hasOwn(table, char) ? table[char] : undefined;
+  return command ? { name: char, length: 1, command } : undefined;
 }
 
 /** & と次の音符の間に書ける命令（音符は別に許す） */
@@ -425,7 +427,7 @@ function parseTrack(source: TrackSource, errors: MmlError[]): ParsedTrack {
     const key = `${index}:${message}`;
     if (reported.has(key)) return;
     reported.add(key);
-    const where = source.positions[index];
+    const where = source.positions[index]!; // positions は text と同じ長さ
     errors.push({ line: where.line, column: where.column, message });
   };
 
@@ -439,6 +441,7 @@ function parseTrack(source: TrackSource, errors: MmlError[]): ParsedTrack {
     }
     const start = ctx.pos;
     const char = text[start];
+    if (char === undefined) break;
     const found = lookupCommand(ctx, start);
     // & の次に書けるのは音符・B・v だけ。ほかの命令なら & の位置で報告し、その命令は普通に読む
     if (ctx.tie && found && !(char in NOTE_SEMITONES) && !TIE_TRANSPARENT.has(char)) {
@@ -455,7 +458,7 @@ function parseTrack(source: TrackSource, errors: MmlError[]): ParsedTrack {
       trace.push({
         command: found.name,
         tick: tickBefore,
-        position: source.positions[start],
+        position: source.positions[start]!,
         noteOn: ctx.noteOn,
       });
     } catch (error) {
@@ -508,7 +511,7 @@ function mergeTempos(parsed: ParsedTrack[], errors: MmlError[]): Tempo[] {
     }
   }
   const tempos = [...byTick].map(([tick, bpm]) => ({ tick, bpm })).sort((x, y) => x.tick - y.tick);
-  if (tempos.length === 0 || tempos[0].tick !== 0) tempos.unshift({ tick: 0, bpm: DEFAULT_BPM });
+  if (tempos.length === 0 || tempos[0]?.tick !== 0) tempos.unshift({ tick: 0, bpm: DEFAULT_BPM });
   return tempos;
 }
 

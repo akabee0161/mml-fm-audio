@@ -35,7 +35,7 @@ export function splitTracks(mml: string): { tracks: TrackSource[]; errors: MmlEr
     if (!match) {
       errors.push({
         line,
-        column: columns[lead],
+        column: columns[lead] ?? 1,
         message: 'トラック名が正しくありません（行頭に A〜P、A〜P に 1 以上の整数、R のどれかを書きます）',
       });
       return;
@@ -53,13 +53,13 @@ export function splitTracks(mml: string): { tracks: TrackSource[]; errors: MmlEr
 
     // 2 行目以降は、前の行との間に空白 1 文字を入れる（位置は前の行の末尾の次）
     if (track.text !== '') {
-      const last = track.positions[track.positions.length - 1];
+      const last = track.positions[track.positions.length - 1]!; // text が空でなければ positions も空でない
       track.text += ' ';
       track.positions.push({ line: last.line, column: last.column + 1 });
     }
     track.text += rest;
     for (let i = body.length - rest.length; i < body.length; i++) {
-      track.positions.push({ line, column: columns[i] });
+      track.positions.push({ line, column: columns[i] ?? 1 });
     }
   });
 
