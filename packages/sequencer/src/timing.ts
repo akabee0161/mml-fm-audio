@@ -81,9 +81,12 @@ export class Timeline {
     if (pass >= 1 && tick < loopStart) {
       throw new RangeError(`pass ${pass} の tick(${tick}) は loopStart(${loopStart}) 以上です`);
     }
-    while (tick >= this.loopEnd) {
-      pass += 1;
-      tick = loopStart + (tick - this.loopEnd);
+    if (tick >= this.loopEnd) {
+      // 1 周ずつ戻すと、ループ終了を越える長さに比例して遅くなるので、周の数を一度に求める
+      const length = this.loopEnd - loopStart;
+      const laps = Math.floor((tick - this.loopEnd) / length) + 1;
+      pass += laps;
+      tick -= laps * length;
     }
     if (pass === 0) return this.at(tick);
     return this.endSeconds + (pass - 1) * (this.endSeconds - this.startSeconds)

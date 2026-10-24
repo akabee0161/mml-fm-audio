@@ -352,4 +352,16 @@ describe('一時停止・再開', () => {
     plain.resume(5000);
     expect(plain.endFrame).toBe(53000);
   });
+
+  it('ループ終了を越えるタイが 2 万個続く曲でも、1 回の pump が重くならない', () => {
+    const { player } = make('A t999 L r%1 c%1 E ' + '&c1'.repeat(20000));
+    let max = 0;
+    for (let i = 0; i < 60 / 0.025; i++) {
+      const now = Math.round(i * 0.025 * SR);
+      const t = performance.now();
+      player.pump(now, now + 0.1 * SR);
+      max = Math.max(max, performance.now() - t);
+    }
+    expect(max).toBeLessThan(50);
+  });
 });

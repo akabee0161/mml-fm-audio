@@ -34,6 +34,29 @@ describe('Timeline', () => {
     expect(tl.seconds(1, 336)).toBe(tl.seconds(2, 144));
   });
 
+  it('ループ終了を越える tick の巻き戻しは、1 周ずつ戻す素朴な実装と一致する', () => {
+    const naive = (tl: Timeline, pass: number, tick: number, ls: number, le: number) => {
+      while (tick >= le) { pass += 1; tick = ls + (tick - le); }
+      return tl.seconds(pass, tick);
+    };
+    for (const [ls, le] of [[96, 288], [0, 1], [10, 11], [0, 192], [5, 1000]] as const) {
+      const tl = new Timeline({ tempos, loopStart: ls, loopEnd: le });
+      for (const tick of [le, le + 1, le + (le - ls), le + 3 * (le - ls) - 1, le + 5 * (le - ls), 5000, 123457]) {
+        for (const pass of [0, 1, 3]) {
+          if (pass >= 1 && tick < ls) continue;
+          expect(tl.seconds(pass, tick)).toBe(naive(tl, pass, tick, ls, le));
+        }
+      }
+    }
+  });
+
+  it('ループが 1 ティックで 1e12 ティック先でも一瞬で返る', () => {
+    const tl = new Timeline({ tempos, loopStart: 0, loopEnd: 1 });
+    const t = performance.now();
+    tl.seconds(0, 1e12);
+    expect(performance.now() - t).toBeLessThan(50);
+  });
+
   it('テンポの戻り：L の位置のテンポ 120 で進み直す', () => {
     const tl = new Timeline({ tempos: [{ tick: 0, bpm: 120 }, { tick: 192, bpm: 60 }], loopStart: 96, loopEnd: 288 });
     expect(tl.seconds(1, 192) - tl.seconds(1, 96)).toBeCloseTo(0.5, 12);

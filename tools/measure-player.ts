@@ -19,6 +19,7 @@ const manyTracks = 'ABCDEFGHIJKLMNOP'.split('').map((name, i) => `${name} ${i ==
 const inputs: { name: string; mml: string }[] = [
   { name: '1 トラック 4 万ノート・t120', mml: 'A L [[t120 c%1]200]200' },
   { name: '16 トラック × 4 万ノート・t999', mml: manyTracks },
+  { name: '病的：ループ終了を越えるタイ 2 万個', mml: 'A t999 L r%1 c%1 E ' + '&c1'.repeat(20000) },
   { name: 'demo/songs/m3-demo.mml', mml: readFileSync(new URL('../demo/songs/m3-demo.mml', import.meta.url), 'utf8') },
 ];
 
@@ -44,6 +45,7 @@ for (const { name, mml } of inputs) {
   let totalMs = 0;
   let maxMs = 0;
   let maxSent = 0;
+  let totalSent = 0;
   const steps = Math.round(seconds / PUMP_INTERVAL_SECONDS);
   for (let i = 0; i < steps; i++) {
     const now = Math.round(i * PUMP_INTERVAL_SECONDS * SAMPLE_RATE);
@@ -52,8 +54,12 @@ for (const { name, mml } of inputs) {
     player.pump(now, now + LOOKAHEAD_SECONDS * SAMPLE_RATE);
     const ms = performance.now() - t;
     totalMs += ms;
+    totalSent += sentCount;
     if (ms > maxMs) { maxMs = ms; maxSent = sentCount; }
   }
+  const ts = performance.now();
+  player.stop();
+  const stopMs = performance.now() - ts;
   rows.push({
     入力: name,
     測った秒数: String(seconds),
@@ -61,6 +67,8 @@ for (const { name, mml } of inputs) {
     'pump 合計(ms)': totalMs.toFixed(1),
     'pump 最大(ms)': maxMs.toFixed(2),
     '最大の pump のイベント数': String(maxSent),
+    'sent 合計': String(totalSent),
+    'stop(ms)': stopMs.toFixed(2),
   });
 }
 console.table(rows);
