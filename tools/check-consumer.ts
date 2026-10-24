@@ -105,7 +105,7 @@ try {
     symlinkSync(join(REPO_ROOT, 'node_modules', name), join(tmpRoot, 'node_modules', name));
   }
   const bare = filesUnder(join(tmpRoot, 'mml-fm-audio')).filter((p) => readFileSync(p, 'utf8').includes('@mml-fm-audio'));
-  check(bare.length === 0, `コピーのソースに @mml-fm-audio の裸の import がない（${bare.join('、')}）`);
+  check(bare.length === 0, `コピーのソースに @mml-fm-audio の裸の import がない${bare.length > 0 ? `（${bare.join('、')}）` : ''}`);
   check(true, `一時フォルダへコピーした（${tmpRoot}）`);
 
   try {
@@ -170,7 +170,7 @@ try {
   const se = await maxPeak(500);
   check(se > 0.01, `別のプロジェクトで効果音が鳴る（最大振幅 ${se.toFixed(3)}）`);
 
-  check(pageErrors.length === 0, `別のプロジェクトでページのエラーが起きていない（${pageErrors.join(' / ')}）`);
+  check(pageErrors.length === 0, `別のプロジェクトでページのエラーが起きていない${pageErrors.length > 0 ? `（${pageErrors.join(' / ')}）` : ''}`);
 } finally {
   if (browser) await browser.close();
   if (server) await new Promise<void>((resolve) => server!.httpServer.close(() => resolve()));

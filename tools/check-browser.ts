@@ -163,7 +163,7 @@ try {
 
   // ここから FmAudio の確認：効果音・音量・フェード・一時停止。BGM は小さめの音（v6）にして、効果音との差が出るようにする
   await page.fill('#mml', 'A @80 v6 o4 l8 L [c e g e]8');
-  const sePeak = (name: string) => page.click(`#se-buttons .se[data-se="${name}"]`);
+  const pressSe = (name: string) => page.click(`#se-buttons .se[data-se="${name}"]`);
   const setRange = (id: string, value: number) =>
     page.$eval(id, (el, v) => {
       (el as HTMLInputElement).value = String(v);
@@ -173,13 +173,13 @@ try {
   await page.click('#mml-play');
   await page.waitForTimeout(300);
   const bgmOnly = await maxPeak(500);
-  await sePeak('item');
+  await pressSe('item');
   const withSe = await maxPeak(500);
   check(bgmOnly > 0.005 && withSe > bgmOnly, `BGM の再生中に効果音を押すと振幅が増える（${bgmOnly.toFixed(3)} → ${withSe.toFixed(3)}）`);
 
   await page.click('#mml-stop');
   await waitSilent();
-  await sePeak('hit');
+  await pressSe('hit');
   const seAlone = await maxPeak(300);
   await waitSilent();
   const seAfter = await peak();
@@ -222,20 +222,25 @@ try {
   await page.check('#load-toggle');
   await page.click('#poly-test');
   await page.waitForTimeout(200);
-  await sePeak('item');
+  await pressSe('item');
   await page.waitForTimeout(100);
-  await sePeak('item');
-  await page.waitForFunction(
-    () => /ボイス数（最大） (1[7-9]|2\d)/.test(document.getElementById('load')!.textContent ?? ''),
-    null,
-    { timeout: 4000 },
-  );
-  check(true, '16 音と効果音を同時に鳴らすと、ボイス数（最大）が 16 を超える');
+  await pressSe('item');
+  let voicesExceeded = true;
+  try {
+    await page.waitForFunction(
+      () => /ボイス数（最大） (1[7-9]|2\d)/.test(document.getElementById('load')!.textContent ?? ''),
+      null,
+      { timeout: 4000 },
+    );
+  } catch {
+    voicesExceeded = false;
+  }
+  check(voicesExceeded, '16 音と効果音を同時に鳴らすと、ボイス数（最大）が 16 を超える');
   await page.click('#poly-test');
   await page.uncheck('#load-toggle');
   await waitSilent();
 
-  check(pageErrors.length === 0, `ページでエラーが起きていない（${pageErrors.join(' / ')}）`);
+  check(pageErrors.length === 0, `ページでエラーが起きていない${pageErrors.length > 0 ? `（${pageErrors.join(' / ')}）` : ''}`);
 } finally {
   if (browser) await browser.close();
   await new Promise<void>((resolve) => server.httpServer.close(() => resolve()));

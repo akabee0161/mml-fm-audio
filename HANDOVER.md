@@ -29,14 +29,14 @@
 
 ## 次にやること
 
-1. M4 の最終レビュー（ブランチ全体、Opus）。
+1. M4 の最終レビューの指摘を直した分の確認（コントローラー）。
 2. PR を出す（依頼者の確認の後。push・PR は実行の直前に確認する）。
 3. 公開後に、依頼者が設計書 §1.1 の確認 1〜8 を行う。
 4. M5（conv：SMF → MML 変換）。設計 → 計画 → 実装の順（brainstorming から）。
 
 ## M4 の状態（2026-10-24）
 
-- ブランチ `feat/m4-runtime` で全タスク（Task 1〜9）を実装した。最終レビュー前で、未 push。
+- ブランチ `feat/m4-runtime` で全タスク（Task 1〜9）を実装し、最終レビューの指摘を直した。未 push。
 - 設計：`docs/superpowers/specs/2026-10-23-m4-runtime-design.md`、計画：`docs/superpowers/plans/2026-10-23-m4-runtime.md`。
 - API の文書は `docs/api.md`（新規）。`docs/spec.md` は v0.5 に更新した（効果音は BGM と別の 4 ボイス、エラーのある曲は鳴らさない、`playBgm` の `loop` と `playSe` の `priority` は作らない）。
 - 作ったもの：`packages/runtime`（`FmAudio`）、音源の BGM 用・効果音用のボイス分け、`Player` の一時停止・再開と鳴る時刻の通知、`ISSUES.md` #11 の修正、試聴ページの `FmAudio` 化、`npm run export:runtime`、`npm run measure:player`、`npm run check:browser` の別プロジェクトでの確認（`tools/check-consumer.ts`）。
@@ -49,6 +49,8 @@
   | 16 トラック × 4 万ノート・t999 | 837 / 6656 / 968（1280） | 757 / 1952 / 15.6（5104） |
   | `m3-demo.mml` | 1.9 / 8.4 / 1.1（5） | 1.7 / 12.7 / 0.2（4） |
 
+- 最終レビューの指摘で足した振る舞い：`playBgm`・`playSe` の直後に 1 回 pump する、`pauseBgm`・`resumeBgm` は `currentTime + 0.05` 秒を止める・続ける時刻にする（その間に鳴り始めるノートは再開後に鳴らし直さない）、`FmEngine.silence(group)`（フェードを下げ終えたら BGM 側のボイスをすぐ無音にする）、`Timeline.seconds` の巻き戻しを一度で求める（M3 から）。
+- 病的な入力 `A t999 L r%1 c%1 E ` + `&c1` × 20000 の実測（`npm run measure:player`、48 kHz・25 ms・先読み 0.1 秒）。5 秒分：直す前は pump の合計 15715 ms・最大 309 ms、直した後は 45 ms・2.3 ms。120 秒分は、直す前は 250 秒で終わらず、直した後は合計 3320 ms・最大 30.7 ms・`sent` 合計 95964 件・`stop()` 12 ms。ループのたびに長く持続するノートが増える入力の性質で、`sent` とヒープは再生時間に応じて増え続ける（直していない）。
 - 実際のゲーム（キャラクタータクティクス）への組み込みは M4 に含めていない。組み込むゲームを決めてから。
 
 ## M3 の作業で分かったこと（次のセッション向け）
