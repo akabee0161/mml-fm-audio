@@ -8,4 +8,6 @@
 - `voices/ymf825/*.json` は `npm run import:ymf825` の生成物。手で編集しない。独自の音色は `voices/custom/` に分けて置く。
 - `packages/engine/src/voiceData.ts` は `tools/` から Node で直接読むため、他のファイルを import しない。`tools/` の import は拡張子 `.ts` つきで書く。
 - 音の計算は Worklet に依存しない形で書き、Vitest で確かめる。`processor.ts` は薄く保つ。
+- `packages/runtime` から `engine`・`sequencer` へは相対パスで import する（`@mml-fm-audio/*` を使わない）。ゲームへコピーしたとき、裸の import が解決できないため。
+- パーサーと `Player` を触るときは、`npm run measure:player` で 1 回の pump の最大時間を見る。病的な入力で重くならないことを確かめる。
 - 完了を報告する前に `npm test`、`npm run build`、`npm run check:browser` を通す。
