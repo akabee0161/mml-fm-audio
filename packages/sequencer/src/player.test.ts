@@ -219,4 +219,43 @@ describe('Player', () => {
     const player = new Player(engine, song, { sampleRate: SR, startFrame: 0 });
     expect(() => player.pump(0, 4800)).not.toThrow();
   });
+
+  it('少しずつ作っても、一度に作ったときと送る順・時刻が同じ', () => {
+    // 3 トラック・ループあり・テンポ変化・ループ終了を越えるノート・v と B を含む
+    const mml = [
+      'A t120 c4 L d4 B+30 e4 t180 v8 f4 g4&v5g4 E',
+      'B r4 r4 c8 d8 B-20 e4 v9 f4 r8 g8&g4',
+      'C r2 r4 r8 e8&e4 v7 c4',
+    ].join('\n');
+    const song = parseMml(mml);
+    expect(song.errors).toEqual([]);
+    const tl = new Timeline(song);
+    // 3 周目の終わりまで。25 ms（1200 フレーム）ごと・先読み 4800 フレームの最後の pump が、同じ範囲を覆うようにそろえる
+    const steps = Math.ceil(tl.seconds(3, song.loopEnd) * SR / 1200);
+    const horizon = steps * 1200 + 4800;
+
+    const once = fakeEngine();
+    new Player(once.engine, song, { sampleRate: SR, startFrame: 0 }).pump(0, horizon);
+
+    const stepped = fakeEngine();
+    const player = new Player(stepped.engine, song, { sampleRate: SR, startFrame: 0 });
+    for (let i = 0; i <= steps; i++) player.pump(i * 1200, i * 1200 + 4800);
+
+    expect(once.calls.length).toBeGreaterThan(50);
+    expect(once.calls.some((c) => c.type === 'bend')).toBe(true);
+    expect(once.calls.some((c) => c.type === 'volume')).toBe(true);
+    expect(stepped.calls).toEqual(once.calls);
+  });
+
+  it('ループする 1 トラックで、1 回の pump が作るアクションは先読みの範囲の分だけ', () => {
+    const { player } = make('A L [[c%1]200]200');
+    player.pump(0, 4800);
+    expect(player.pendingCount).toBeLessThan(1000);
+  });
+
+  it('1 周にノートのないトラックがあっても、pump が先読みの範囲で止まる', () => {
+    const { player, calls } = make('A L c4 d4 E\nB r4 r4');
+    player.pump(0, 4 * 24000);
+    expect(ons(calls).length).toBeGreaterThan(2);
+  });
 });

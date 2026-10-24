@@ -49,41 +49,124 @@ function compare(a: Action, b: Action): number {
   return a.frame - b.frame || PRIORITY[a.kind] - PRIORITY[b.kind] || a.track - b.track || a.seq - b.seq;
 }
 
+/** tick が指定以上の最初のイベントの添字（なければ events.length）。events は tick の順 */
+function firstIndexAtOrAfter(events: readonly { tick: number }[], tick: number): number {
+  let lo = 0;
+  let hi = events.length;
+  while (lo < hi) {
+    const mid = (lo + hi) >> 1;
+    if (events[mid].tick < tick) lo = mid + 1;
+    else hi = mid;
+  }
+  return lo;
+}
+
+/** compare の順に取り出せる二分ヒープ */
+class ActionHeap {
+  private readonly items: Action[] = [];
+
+  get size(): number {
+    return this.items.length;
+  }
+
+  peek(): Action | undefined {
+    return this.items[0];
+  }
+
+  push(a: Action): void {
+    const items = this.items;
+    let i = items.length;
+    items.push(a);
+    while (i > 0) {
+      const parent = (i - 1) >> 1;
+      if (compare(items[parent], a) <= 0) break;
+      items[i] = items[parent];
+      i = parent;
+    }
+    items[i] = a;
+  }
+
+  pop(): Action | undefined {
+    const items = this.items;
+    const top = items[0];
+    const last = items.pop();
+    if (last === undefined || items.length === 0) return top;
+    let i = 0;
+    for (;;) {
+      let child = 2 * i + 1;
+      if (child >= items.length) break;
+      if (child + 1 < items.length && compare(items[child + 1], items[child]) < 0) child++;
+      if (compare(items[child], last) >= 0) break;
+      items[i] = items[child];
+      i = child;
+    }
+    items[i] = last;
+    return top;
+  }
+
+  clear(): void {
+    this.items.length = 0;
+  }
+}
+
+/** トラックごとの読み位置。events のどこまでをアクションにしたか */
+interface TrackCursor {
+  /** 何周目か */
+  pass: number;
+  /** 次に読む events の添字 */
+  index: number;
+  /** この周で最後にノートオンしたノート（v・B の対象）。周の頭で忘れる */
+  last: NoteState | null;
+  /** pass 1 以降の読み始めの添字（tick が loopStart 以上の最初のイベント） */
+  loopIndex: number;
+  /** ループしない曲で、最後のイベントまで読んだ */
+  done: boolean;
+}
+
 export class Player {
+  private readonly engine: EngineLike;
+  private readonly song: Song;
+  private readonly options: PlayerOptions;
   private readonly timeline: Timeline;
   private readonly loopStart: number | null;
   private readonly loopEnd: number;
-  /** 時刻順の待ち行列。先頭から送る */
-  private queue: Action[] = [];
+  /** 作ったが送っていないアクション。時刻順に取り出す */
+  private readonly queue = new ActionHeap();
+  private readonly cursors: TrackCursor[];
   private sent: NoteState[] = [];
-  private nextPass = 0;
   private seq = 0;
   private lastNowFrame = 0;
-  private generationDone = false;
   private stopped = false;
 
-  constructor(
-    private readonly engine: EngineLike,
-    private readonly song: Song,
-    private readonly options: PlayerOptions,
-  ) {
+  constructor(engine: EngineLike, song: Song, options: PlayerOptions) {
     if (song.errors.length > 0) {
       const e = song.errors[0];
       throw new Error(`エラーのある曲は再生できません（${song.errors.length} 件。最初：${e.line} 行 ${e.column} 列 ${e.message}）`);
     }
+    this.engine = engine;
+    this.song = song;
+    this.options = options;
     this.timeline = new Timeline(song);
     this.loopStart = song.loopStart;
     this.loopEnd = song.loopEnd;
+    this.cursors = song.tracks.map((track) => ({
+      pass: 0,
+      index: 0,
+      last: null,
+      loopIndex: song.loopStart === null ? 0 : firstIndexAtOrAfter(track.events, song.loopStart),
+      done: false,
+    }));
   }
 
   /** 時刻が horizonFrame より前のイベントを送る。nowFrame より前のノートオンは送らずに捨てる */
   pump(nowFrame: number, horizonFrame: number): void {
     if (this.stopped) return;
     this.lastNowFrame = nowFrame;
-    while (!this.generationDone && this.passStartFrame(this.nextPass) < horizonFrame) this.generatePass();
-    let i = 0;
-    for (; i < this.queue.length && this.queue[i].frame < horizonFrame; i++) this.send(this.queue[i], nowFrame);
-    this.queue.splice(0, i);
+    this.song.tracks.forEach((_, t) => this.generate(t, horizonFrame));
+    for (let a = this.queue.peek(); a !== undefined && a.frame < horizonFrame; a = this.queue.peek()) {
+      this.queue.pop();
+      this.send(a, nowFrame);
+    }
     // ノートオフが過ぎたノートは stop() でも cancel しない（offFrame >= lastNowFrame だけが対象）ので捨てる。
     // nowFrame は pump ごとに減らない（時刻が戻らない）前提
     let kept = 0;
@@ -98,14 +181,19 @@ export class Player {
     const ids = this.sent
       .filter((n) => n.id !== null && n.offFrame >= this.lastNowFrame)
       .map((n) => n.id as number);
-    this.queue = [];
+    this.queue.clear();
     this.sent = [];
     if (ids.length > 0) this.engine.cancel(ids);
   }
 
   /** ループしない曲で、最後のノートオフまで送り終えたら true */
   get finished(): boolean {
-    return !this.stopped && this.loopStart === null && this.generationDone && this.queue.length === 0;
+    return !this.stopped && this.loopStart === null && this.cursors.every((c) => c.done) && this.queue.size === 0;
+  }
+
+  /** テスト用。作ったがまだ送っていないアクションの数 */
+  get pendingCount(): number {
+    return this.queue.size;
   }
 
   private frame(pass: number, tick: number): number {
@@ -116,40 +204,44 @@ export class Player {
     return this.frame(pass, pass === 0 ? 0 : (this.loopStart as number));
   }
 
-  /** nextPass 回目のイベントを待ち行列に入れる */
-  private generatePass(): void {
-    const pass = this.nextPass++;
-    const looping = this.loopStart !== null;
-    // pass 1 以降は loopStart 未満のイベントを送らない（L の前から持続中のノートを鳴らし直さない）
-    const from = pass === 0 ? 0 : (this.loopStart as number);
-    const to = looping ? this.loopEnd : Infinity;
-    const added: Action[] = [];
-
-    this.song.tracks.forEach((track, t) => {
-      // 各回の始めで最後のノートを忘れる
-      let last: NoteState | null = null;
-      for (const ev of track.events) {
-        if (ev.tick < from || ev.tick >= to) continue;
-        if (ev.type === 'note') {
-          const note: NoteState = { id: null, dropped: false, offFrame: this.frame(pass, ev.tick + ev.gate) };
-          last = note;
-          added.push({
-            kind: 'on', frame: this.frame(pass, ev.tick), track: t, seq: this.seq++, note,
-            program: ev.program, pitch: ev.note, pan: ev.pan, gain: volumeGain(ev.volume), bend: ev.bend,
-          });
-          added.push({ kind: 'off', frame: note.offFrame, track: t, seq: this.seq++, note });
-        } else if (last !== null) {
-          const frame = this.frame(pass, ev.tick);
-          added.push(ev.type === 'bend'
-            ? { kind: 'bend', frame, track: t, seq: this.seq++, note: last, cents: ev.cents }
-            : { kind: 'volume', frame, track: t, seq: this.seq++, note: last, gain: volumeGain(ev.volume) });
+  /** トラック t の、時刻が horizonFrame より前のイベントをアクションにして待ち行列に入れる */
+  private generate(t: number, horizonFrame: number): void {
+    const cursor = this.cursors[t];
+    const events = this.song.tracks[t].events;
+    const loopStart = this.loopStart;
+    while (!cursor.done) {
+      if (cursor.index >= events.length || (loopStart !== null && events[cursor.index].tick >= this.loopEnd)) {
+        // 周の終わり。ループしない曲はここで終わり、ループする曲は次の周の loopStart 以上の最初のイベントへ移る。
+        // pass 1 以降は loopStart 未満のイベントを送らない（L の前から持続中のノートを鳴らし直さない）
+        if (loopStart === null) {
+          cursor.done = true;
+          return;
         }
+        cursor.pass++;
+        cursor.index = cursor.loopIndex;
+        cursor.last = null;
+        // イベントのない周が続いても止まらないよう、周の頭が先読みの外なら止める
+        if (this.passStartFrame(cursor.pass) >= horizonFrame) return;
+        continue;
       }
-    });
-
-    if (!looping) this.generationDone = true;
-    for (const a of added) this.queue.push(a);
-    this.queue.sort(compare);
+      const ev = events[cursor.index];
+      const frame = this.frame(cursor.pass, ev.tick);
+      if (frame >= horizonFrame) return;
+      cursor.index++;
+      if (ev.type === 'note') {
+        const note: NoteState = { id: null, dropped: false, offFrame: this.frame(cursor.pass, ev.tick + ev.gate) };
+        cursor.last = note;
+        this.queue.push({
+          kind: 'on', frame, track: t, seq: this.seq++, note,
+          program: ev.program, pitch: ev.note, pan: ev.pan, gain: volumeGain(ev.volume), bend: ev.bend,
+        });
+        this.queue.push({ kind: 'off', frame: note.offFrame, track: t, seq: this.seq++, note });
+      } else if (cursor.last !== null) {
+        this.queue.push(ev.type === 'bend'
+          ? { kind: 'bend', frame, track: t, seq: this.seq++, note: cursor.last, cents: ev.cents }
+          : { kind: 'volume', frame, track: t, seq: this.seq++, note: cursor.last, gain: volumeGain(ev.volume) });
+      }
+    }
   }
 
   private send(a: Action, nowFrame: number): void {
