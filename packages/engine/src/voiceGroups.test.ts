@@ -103,6 +103,27 @@ describe('VoiceGroups', () => {
     expect(peakOf(renderGroup(groups, 'bgm', 256))).toBeGreaterThan(0);
   });
 
+  it('silence(group) はその割り当ての音だけを即座に無音にする（キーオフのリリースを待たない）', () => {
+    const groups = new VoiceGroups(SR);
+    groups.register(0, sustain);
+    groups.noteOn('bgm', 1, 0, 60, 64);
+    groups.noteOn('bgm', 2, 0, 64, 64);
+    groups.noteOn('se', 3, 0, 72, 64);
+    advance(groups, 1);
+    groups.silence('bgm');
+    expect(peakOf(renderGroup(groups, 'bgm', 256))).toBe(0);
+    expect(peakOf(renderGroup(groups, 'se', 256))).toBeGreaterThan(0);
+    expect(groups.activeCount).toBe(1);
+    // 止めたボイスは次の noteOn で使える
+    expect(groups.noteOn('bgm', 4, 0, 60, 64)).toBe(true);
+    expect(peakOf(renderGroup(groups, 'bgm', 256))).toBeGreaterThan(0);
+  });
+
+  it('silence の group が bgm・se 以外なら RangeError', () => {
+    const groups = new VoiceGroups(SR);
+    expect(() => groups.silence('x' as never)).toThrow(RangeError);
+  });
+
   it('未登録の program は鳴らさず false', () => {
     const groups = new VoiceGroups(SR);
     expect(groups.noteOn('se', 1, 9, 60, 64)).toBe(false);

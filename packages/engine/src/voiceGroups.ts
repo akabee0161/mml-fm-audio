@@ -43,6 +43,14 @@ export class VoiceGroups {
     this.pools.se.cancel(ids);
   }
 
+  /** group のボイスをすべて、すぐ無音にする（もう一方の組には触れない） */
+  silence(group: VoiceGroup): void {
+    if (group !== 'bgm' && group !== 'se') {
+      throw new RangeError(`silence: group は 'bgm' か 'se' にしてください（group=${String(group)}）`);
+    }
+    this.pools[group].silence();
+  }
+
   /** group の音だけを left/right の [from, to) に足し込む */
   render(group: VoiceGroup, left: Float32Array, right: Float32Array, from: number, to: number): void {
     this.pools[group].render(left, right, from, to);

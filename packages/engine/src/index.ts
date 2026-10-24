@@ -131,6 +131,17 @@ export class FmEngine {
     this.send({ type: 'cancel', ids: [...ids] });
   }
 
+  /**
+   * group のボイスをすべて、キーオフせずにすぐ無音にする（リリースの尾も残らない）。
+   * 時刻を持たず、Worklet が受け取ったらすぐ処理する。まだ処理していない予約は捨てないので、先に cancel する
+   */
+  silence(group: VoiceGroup): void {
+    if (group !== 'bgm' && group !== 'se') {
+      throw new RangeError(`silence: group は 'bgm' か 'se' にしてください（group=${String(group)}）`);
+    }
+    this.send({ type: 'silence', group });
+  }
+
   /** noteOn が返した ID の音をキーオフする。ドラムは無視される */
   noteOff(id: number, time = this.nowFrame()): void {
     if (!Number.isInteger(id) || !Number.isFinite(time)) {

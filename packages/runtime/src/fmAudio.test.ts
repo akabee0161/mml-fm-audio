@@ -42,6 +42,7 @@ type NoteOn = { id: number; program: number; note: number; time: number; group: 
 function fakeEngine() {
   const noteOns: NoteOn[] = [];
   const cancels: number[][] = [];
+  const silences: string[] = [];
   let nextId = 1;
   let warn: (message: string) => void = () => {};
   const node = { connect: vi.fn(), disconnect: vi.fn() };
@@ -57,13 +58,16 @@ function fakeEngine() {
     cancel(ids) {
       cancels.push([...ids]);
     },
+    silence(group) {
+      silences.push(group);
+    },
     registerVoice: vi.fn(),
     onWarning(handler) {
       warn = handler;
     },
     node,
   };
-  return { engine, noteOns, cancels, node, warn: (m: string) => warn(m) };
+  return { engine, noteOns, cancels, silences, node, warn: (m: string) => warn(m) };
 }
 
 function fakeDocument() {
@@ -350,6 +354,56 @@ describe('FmAudio', () => {
     expect(fn(bgmFade.gain.setValueAtTime)).toHaveBeenCalledTimes(1);
     expect(fn(bgmFade.gain.linearRampToValueAtTime)).toHaveBeenCalledTimes(1);
     expect(vi.getTimerCount()).toBe(0);
+  });
+
+  it('フェードを下げ終えた時点で BGM 側のボイスを silence する（cancel の後に 1 回だけ）', () => {
+    const { audio, context, silences, cancels } = setup();
+    audio.playBgm(audio.load('A L c1 d1'));
+    tickAt(context, 0.025);
+    audio.stopBgm({ fadeMs: 1000 });
+    tickAt(context, 0.9);
+    expect(silences).toEqual([]);
+    tickAt(context, 1.1);
+    expect(cancels).toHaveLength(1);
+    expect(silences).toEqual(['bgm']);
+    tickAt(context, 2);
+    expect(silences).toEqual(['bgm']);
+  });
+
+  it('フェード中の playBgm・pauseBgm・fadeMs なしの stopBgm、フェードなしの stopBgm では silence しない', () => {
+    const a = setup();
+    a.audio.playBgm(a.audio.load('A L c1 d1'));
+    tickAt(a.context, 0.025);
+    a.audio.stopBgm({ fadeMs: 2000 });
+    tickAt(a.context, 0.5);
+    a.audio.playBgm(a.audio.load('A L e1'));
+    tickAt(a.context, 3);
+    expect(a.silences).toEqual([]);
+
+    const b = setup();
+    b.audio.playBgm(b.audio.load('A L c1 d1'));
+    tickAt(b.context, 0.025);
+    b.audio.stopBgm({ fadeMs: 2000 });
+    tickAt(b.context, 0.5);
+    b.audio.pauseBgm();
+    tickAt(b.context, 3);
+    expect(b.silences).toEqual([]);
+
+    const c = setup();
+    c.audio.playBgm(c.audio.load('A L c1 d1'));
+    tickAt(c.context, 0.025);
+    c.audio.stopBgm({ fadeMs: 2000 });
+    tickAt(c.context, 0.5);
+    c.audio.stopBgm();
+    tickAt(c.context, 3);
+    expect(c.silences).toEqual([]);
+
+    const d = setup();
+    d.audio.playBgm(d.audio.load('A L c1 d1'));
+    tickAt(d.context, 0.025);
+    d.audio.stopBgm();
+    tickAt(d.context, 3);
+    expect(d.silences).toEqual([]);
   });
 
   it('フェード中も BGM のノートを送り続ける', () => {

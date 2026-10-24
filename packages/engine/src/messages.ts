@@ -15,6 +15,8 @@ export type EngineMessage =
   | { type: 'setVolume'; id: number; volume: number; time: number }
   /** 時刻を持たず、受け取ったらすぐ処理する */
   | { type: 'cancel'; ids: number[] }
+  /** group のボイスをすべて、キーオフせずにすぐ無音にする。時刻を持たず、受け取ったらすぐ処理する */
+  | { type: 'silence'; group: VoiceGroup }
   | { type: 'setQuantize'; enabled: boolean }
   | { type: 'setLoadReport'; enabled: boolean };
 

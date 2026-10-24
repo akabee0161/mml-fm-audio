@@ -67,6 +67,14 @@ export class VoicePool {
     if (index >= 0) this.voices[index]!.noteOff();
   }
 
+  /** すべてのボイスをすぐ無音にする（キーオフのリリースを待たない） */
+  silence(): void {
+    for (let i = 0; i < this.voices.length; i++) {
+      this.voices[i]!.stop();
+      this.ids[i] = null;
+    }
+  }
+
   /** left/right の [from, to) に足し込む */
   render(left: Float32Array, right: Float32Array, from: number, to: number): void {
     if (this.lfoValues.length < to) this.lfoValues = new Float32Array(to);

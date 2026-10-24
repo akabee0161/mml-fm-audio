@@ -56,6 +56,9 @@ class FmProcessor extends AudioWorkletProcessor {
         this.pool.cancel(message.ids);
         break;
       }
+      case 'silence':
+        this.pool.silence(message.group);
+        break;
       case 'noteOn':
       case 'noteOff':
       case 'setPitchBend':

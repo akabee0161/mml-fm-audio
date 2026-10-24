@@ -60,6 +60,7 @@ export interface RuntimeEngine {
   setPitchBend(id: number, cents: number, time: number): void;
   setVolume(id: number, volume: number, time: number): void;
   cancel(ids: readonly number[]): void;
+  silence(group: VoiceGroup): void;
   registerVoice(program: number, voice: AnyVoice): void;
   onWarning(handler: (message: string) => void): void;
   readonly node: AudioNodeLike;
@@ -391,7 +392,9 @@ export class FmAudio {
 
     const bgm = this.bgm;
     if (bgm && bgm.fadeEnd !== null && this.ctx.currentTime >= bgm.fadeEnd) {
+      // 出力が 0 になったので、リリースの尾やドラムが残らないよう BGM 側のボイスを止める（0 の出力を止めるので、プチッとは鳴らない）
       this.dropBgm(bgm);
+      this.rt.silence('bgm');
     } else if (bgm && !bgm.player.paused) {
       // 一時停止中は何も送らず、loop・end も呼ばない
       bgm.player.pump(now, horizon);

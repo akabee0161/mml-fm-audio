@@ -158,6 +158,15 @@ describe('FmEngine', () => {
     ]);
   });
 
+  it('silence は group を送り、bgm・se 以外なら RangeError で何も送らない', async () => {
+    const { engine, node } = await createEngine();
+    engine.silence('bgm');
+    engine.silence('se');
+    expect(node.sent).toEqual([{ type: 'silence', group: 'bgm' }, { type: 'silence', group: 'se' }]);
+    expect(() => engine.silence('x' as never)).toThrow(/silence/);
+    expect(node.sent).toHaveLength(2);
+  });
+
   it('音量・ピッチベンド・取り消しの引数が範囲外なら RangeError を投げ、何も送らない', async () => {
     const { engine, node } = await createEngine();
     expect(() => engine.noteOn(0, 60, { volume: 1.5 })).toThrow(RangeError);
