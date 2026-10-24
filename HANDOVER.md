@@ -40,7 +40,7 @@
 - 設計：`docs/superpowers/specs/2026-10-23-m4-runtime-design.md`、計画：`docs/superpowers/plans/2026-10-23-m4-runtime.md`。
 - API の文書は `docs/api.md`（新規）。`docs/spec.md` は v0.5 に更新した（効果音は BGM と別の 4 ボイス、エラーのある曲は鳴らさない、`playBgm` の `loop` と `playSe` の `priority` は作らない）。
 - 作ったもの：`packages/runtime`（`FmAudio`）、音源の BGM 用・効果音用のボイス分け、`Player` の一時停止・再開と鳴る時刻の通知、`ISSUES.md` #11 の修正、試聴ページの `FmAudio` 化、`npm run export:runtime`、`npm run measure:player`、`npm run check:browser` の別プロジェクトでの確認（`tools/check-consumer.ts`）。
-- 設計書に書かず実装で決めたことは `docs/api.md` に事実として書いた：効果音の MML の `L` は無視、一時停止中の `stopBgm({ fadeMs })` はフェードせず止める、フェードで下げた倍率は次の `playBgm` で戻す、`setSpeakerFilter` で `output` が変わる、`on` の引数検査、`export:runtime` のコピー先の検査。設計書の確認事項と合わせて、依頼者が違うと思えば直す。
+- 設計書に書かず実装で決めたことは `docs/api.md` に事実として書いた：効果音の MML の `L` は無視、一時停止中の `stopBgm({ fadeMs })` はフェードせず止める、フェードで下げた倍率は次の `playBgm` で戻す、`setSpeakerFilter` で `output` が変わる、`on` の引数検査、`export:runtime` のコピー先の検査。もう 1 つ、文書に書いていない決定がある：同梱の音色集に `voices/ymf825/unassigned.json` を含めていない（設計 §3.1 では依頼者の決定として含めるとしていた）。`id` が null で番号がなく、MML の `@N` から呼べないため、登録していない。必要なら番号を振って含める。設計書の確認事項と合わせて、依頼者が違うと思えば直す。
 - `ISSUES.md` #11（ループの各周回の頭でメインスレッドが止まる）の実測。48 kHz・25 ms ごとに pump・先読み 0.1 秒・60 秒分、単位 ms。「解析時間 / pump の合計 / 1 回の pump の最大（その pump で送ったイベント数）」。16 トラックの入力は `L` を A の行頭だけに置いた。このサーバーは測るたびに揺れ、外れ値が出ることがある。
 
   | 入力 | 直す前 | 直した後 |
