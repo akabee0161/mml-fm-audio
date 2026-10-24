@@ -280,6 +280,29 @@ describe('FmAudio', () => {
     expect(ends).not.toHaveBeenCalled();
   });
 
+  it('handler が例外を投げても、他の handler と tick の残り（効果音の pump・タイマーを止める判定）は飛ばない。例外は microtask で投げ直す', () => {
+    const rethrown: unknown[] = [];
+    vi.stubGlobal('queueMicrotask', (f: () => void) => {
+      try { f(); } catch (e) { rethrown.push(e); }
+    });
+    try {
+      const { audio, context } = setup();
+      const boom = new Error('boom');
+      const second = vi.fn();
+      audio.on('end', () => { throw boom; });
+      audio.on('end', second);
+      audio.playBgm(audio.load('A c4')); // 終わりは 0.55 秒
+      audio.playSe(audio.load('A c4'));
+      tickAt(context, 0.6);
+      expect(second).toHaveBeenCalledTimes(1);
+      expect(rethrown).toEqual([boom]);
+      tickAt(context, 1);
+      expect(vi.getTimerCount()).toBe(0); // タイマーを止める判定まで進んだ
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
   it('音源の警告を warning として渡す', () => {
     const { audio, warn } = setup();
     const warnings: string[] = [];
@@ -333,7 +356,7 @@ describe('FmAudio', () => {
     expect(targetCalls(seGain)).toHaveLength(1);
   });
 
-  it('stopBgm({ fadeMs: 1000 }) は 1 秒かけて bgmFade を 0 へ下げ、終わったタイマーで Player を止めて bgmFade を 1 に戻す', () => {
+  it('stopBgm({ fadeMs: 1000 }) は 1 秒かけて bgmFade を 0 へ下げ、終わったタイマーで Player を止める（bgmFade は 1 に戻さない）', () => {
     const { audio, context, gains, cancels, run } = setup();
     const bgmFade = gains[0]!;
     audio.playBgm(audio.load('A L c1 d1'));
@@ -406,6 +429,20 @@ describe('FmAudio', () => {
     expect(d.silences).toEqual([]);
   });
 
+  it('フェードの途中で stopBgm し直すと、gain.value を読まず、予約したフェードの今の値から下げ直す', () => {
+    const { audio, context, gains } = setup();
+    const bgmFade = gains[0]!;
+    Object.defineProperty(bgmFade.gain, 'value', { get: () => { throw new Error('gain.value を読んではいけない'); } });
+    audio.playBgm(audio.load('A L c1 d1'));
+    tickAt(context, 0.025);
+    audio.stopBgm({ fadeMs: 1000 }); // 0.025 秒で 1、1.025 秒で 0
+    tickAt(context, 0.525);
+    audio.stopBgm({ fadeMs: 100 }); // 0.525 秒の値は 0.5、0.625 秒で 0
+    const [value, time] = fn(bgmFade.gain.setValueAtTime).mock.calls.at(-1)!;
+    expect(value).toBeCloseTo(0.5, 6);
+    expect(time).toBeCloseTo(0.525, 6);
+  });
+
   it('フェード中も BGM のノートを送り続ける', () => {
     const { audio, context, noteOns } = setup();
     audio.playBgm(audio.load('A L c4 d4')); // ノートは 0.05、0.55、1.05 秒…
@@ -428,8 +465,10 @@ describe('FmAudio', () => {
     audio.playBgm(audio.load('A @2 L d4'));
     expect(cancels).toHaveLength(1);
     expect(fn(bgmFade.gain.cancelScheduledValues).mock.calls.at(-1)).toEqual([0.5]);
-    // 新しい曲の頭（0.5 + 0.05 秒）に向けて今の値から 1 へ戻す
-    expect(fn(bgmFade.gain.setValueAtTime).mock.calls.at(-1)).toEqual([1, 0.5]);
+    // 新しい曲の頭（0.5 + 0.05 秒）に向けて、予約したフェードから出した今の値（0.025 秒で 1、2.025 秒で 0 の直線の 0.5 秒）から 1 へ戻す
+    const [startValue, startTime] = fn(bgmFade.gain.setValueAtTime).mock.calls.at(-1)!;
+    expect(startValue).toBeCloseTo(1 - 0.475 / 2, 6);
+    expect(startTime).toBe(0.5);
     const back = fn(bgmFade.gain.linearRampToValueAtTime).mock.calls.at(-1)!;
     expect(back[0]).toBe(1);
     expect(back[1]).toBeCloseTo(0.55, 6);

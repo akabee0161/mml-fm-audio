@@ -24,6 +24,12 @@ export function validateVoiceEntries(entries: ReadonlyArray<{ program: number; v
     if (!result.ok) {
       throw new RangeError(`音色の検査に通りません（program=${program}）：${describe(result.errors)}`);
     }
+    const [min, max] = result.voice.kind === 'fm' ? [0, 127] : [128, 255];
+    if (!Number.isInteger(program) || program < min || program > max) {
+      throw new RangeError(
+        `音色の検査に通りません（program=${program}）：${result.voice.kind === 'fm' ? 'FM 音色' : 'ドラム'}の program は ${min}〜${max} の整数にしてください`,
+      );
+    }
     return { program, voice: result.voice };
   });
 }

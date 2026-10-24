@@ -130,6 +130,8 @@ export class FmAudio {
   private suspendedByVisibility = false;
   /** bgmFade を 0 へ下げた（1 でない）可能性があるか。次の playBgm で 1 へ戻す */
   private fadeLowered = false;
+  /** bgmFade に最後に予約した直線のフェード。今の値を gain.value を読まずに出すため（なければ 1 のまま） */
+  private fadeRamp: { startTime: number; startValue: number; endTime: number; endValue: number } | null = null;
   private bgm: BgmState | null = null;
   private readonly sePlayers = new Set<Player>();
   private timer: ReturnType<typeof setInterval> | null = null;
@@ -181,8 +183,15 @@ export class FmAudio {
   static async init(options: FmAudioOptions = {}): Promise<FmAudio> {
     const entries = validateVoiceEntries(options.voices ?? bundledVoices());
     const context = options.context ?? new AudioContext();
-    const engine = await FmEngine.create(context);
-    for (const { program, voice } of entries) engine.registerVoice(program, voice);
+    let engine: FmEngine;
+    try {
+      engine = await FmEngine.create(context);
+      for (const { program, voice } of entries) engine.registerVoice(program, voice);
+    } catch (e) {
+      // 自分で作った context は、使われないまま残らないよう閉じる（渡された context は呼び出し側のものなので閉じない）
+      if (!options.context) await context.close().catch(() => {});
+      throw e;
+    }
     return FmAudio.create({
       context,
       engine,
@@ -210,11 +219,7 @@ export class FmAudio {
     this.bgm = { player: new Player(this.rt, song, this.playerOptions()), nextLoopPass: 1, fadeEnd: null };
     if (this.fadeLowered) {
       // 前の曲の尾が跳ね上がらないよう、新しい曲の頭の時刻に向けて今の値から 1 へ戻す
-      const now = this.ctx.currentTime;
-      const gain = this.bgmFade.gain;
-      gain.cancelScheduledValues(now);
-      gain.setValueAtTime(gain.value, now);
-      gain.linearRampToValueAtTime(1, now + START_MARGIN_SECONDS);
+      this.rampFade(this.ctx.currentTime, 1, this.ctx.currentTime + START_MARGIN_SECONDS);
       this.fadeLowered = false;
     }
     this.pumpNow(this.bgm.player);
@@ -244,10 +249,7 @@ export class FmAudio {
     const now = this.ctx.currentTime;
     const end = now + fadeMs / 1000;
     if (bgm.fadeEnd !== null && end >= bgm.fadeEnd) return;
-    const gain = this.bgmFade.gain;
-    gain.cancelScheduledValues(now);
-    gain.setValueAtTime(gain.value, now);
-    gain.linearRampToValueAtTime(0, end);
+    this.rampFade(now, 0, end);
     bgm.fadeEnd = end;
     this.fadeLowered = true;
   }
@@ -363,6 +365,25 @@ export class FmAudio {
     return { sampleRate, startFrame: Math.round((this.ctx.currentTime + START_MARGIN_SECONDS) * sampleRate) };
   }
 
+  /** bgmFade を、今の値から endTime に endValue になる直線へ予約し直す */
+  private rampFade(now: number, endValue: number, endTime: number): void {
+    const startValue = this.fadeValueAt(now);
+    const gain = this.bgmFade.gain;
+    gain.cancelScheduledValues(now);
+    gain.setValueAtTime(startValue, now);
+    gain.linearRampToValueAtTime(endValue, endTime);
+    this.fadeRamp = { startTime: now, startValue, endTime, endValue };
+  }
+
+  /** 予約したフェードの、time での値（直線の補間）。何も予約していなければ 1 */
+  private fadeValueAt(time: number): number {
+    const r = this.fadeRamp;
+    if (r === null) return 1;
+    if (time >= r.endTime) return r.endValue;
+    if (time <= r.startTime) return r.startValue;
+    return r.startValue + ((r.endValue - r.startValue) * (time - r.startTime)) / (r.endTime - r.startTime);
+  }
+
   /**
    * 一時停止・再開の時刻（フレーム）。currentTime より START_MARGIN 先。
    * すでに音源へ送り済みで、この余裕の中で鳴り始めるノートは持続中として扱う（再開後に鳴らし直さない）
@@ -378,7 +399,16 @@ export class FmAudio {
   }
 
   private emit(type: EventType, message?: string): void {
-    for (const handler of [...this.handlers[type]]) handler(message ?? '');
+    for (const handler of [...this.handlers[type]]) {
+      try {
+        handler(message ?? '');
+      } catch (e) {
+        // 1 つの handler の例外で、tick の残りや他の handler を飛ばさない。例外は握りつぶさず、あとで投げ直す
+        queueMicrotask(() => {
+          throw e;
+        });
+      }
+    }
   }
 
   private ensureTimer(): void {
