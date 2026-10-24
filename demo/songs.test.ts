@@ -31,3 +31,16 @@ describe('m3-demo.mml', () => {
     ]);
   });
 });
+
+describe('効果音の MML（se-*.mml）', () => {
+  for (const name of ['se-decide', 'se-cancel', 'se-hit', 'se-item']) {
+    it(`${name} はエラーなく解析でき、1 秒以内に終わる`, () => {
+      const song = parseMml(readFileSync(new URL(`./songs/${name}.mml`, import.meta.url), 'utf8'));
+      expect(song.errors).toEqual([]);
+      expect(song.length).toBeGreaterThan(0);
+      // 96 ティック = 四分音符。テンポ 180 以上なら 1 秒は 288 ティック以上
+      const bpm = song.tempos[0]!.bpm;
+      expect((song.length / 96) * (60 / bpm)).toBeLessThanOrEqual(1);
+    });
+  }
+});

@@ -37,10 +37,25 @@
         <h2>MML</h2>
         <textarea id="mml" rows="16" spellcheck="false"></textarea>
         <div class="row">
-          <button id="mml-play" type="button">再生</button>
+          <button id="mml-play" type="button">BGM 再生</button>
           <button id="mml-stop" type="button">停止</button>
+          <button id="mml-fade" type="button">フェードして停止（1 秒）</button>
+          <button id="mml-pause" type="button">一時停止</button>
+          <button id="mml-resume" type="button">再開</button>
         </div>
+        <p id="bgm-events" class="hint"></p>
         <ul id="mml-errors" class="errors"></ul>
+        <h2>効果音</h2>
+        <div id="se-buttons" class="row"></div>
+        <p class="hint">効果音は BGM とは別の 4 ボイスで鳴るので、BGM を消さずに重なります。同じボタンを続けて押すと重ねて鳴ります。</p>
+        <h2>音量</h2>
+        <div class="row">
+          <label>master <input id="volume-master" type="range" min="0" max="100" step="1" value="100" /> <span id="volume-master-value">100</span></label>
+          <label>BGM <input id="volume-bgm" type="range" min="0" max="100" step="1" value="100" /> <span id="volume-bgm-value">100</span></label>
+          <label>効果音 <input id="volume-se" type="range" min="0" max="100" step="1" value="100" /> <span id="volume-se-value">100</span></label>
+        </div>
+        <label><input id="speaker-filter" type="checkbox" /> スピーカー風フィルター</label>
+        <p class="hint">鍵盤・16 音・ドラム・リズムは BGM 側で鳴るので、BGM の音量とフェードが効きます。再生中にタブを裏に回すと止まり、戻ると続きから鳴ります。</p>
         <p class="hint">最初に入っているのは、設計者が作った試聴曲です（テンポ 120（14 小節目だけ 112）、4/4 拍子、14 小節）。3 小節目から最後までを繰り返します。行頭の A・B・C1〜C3・R がトラックで、R がドラムです。@N は音色番号で、同梱の GM 音色にない番号は警告に出ます。</p>
         <h2>負荷</h2>
         <label><input id="load-toggle" type="checkbox" /> 負荷を表示</label>

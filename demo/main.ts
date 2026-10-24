@@ -1,6 +1,5 @@
 import './style.css';
 import {
-  FmEngine,
   MAX_VOICES,
   validateDrum,
   validateVoice,
@@ -9,7 +8,7 @@ import {
   type LoadReport,
   type ValidationError,
 } from '@mml-fm-audio/engine';
-import { Player, parseMml } from '@mml-fm-audio/sequencer';
+import { FmAudio } from '@mml-fm-audio/runtime';
 import drumData from '../voices/custom/drums.json';
 import gmVoices from '../voices/ymf825/gm.json';
 import unassignedVoices from '../voices/ymf825/unassigned.json';
@@ -25,6 +24,10 @@ import {
   shiftBase,
 } from './keyboard';
 import demoSong from './songs/m3-demo.mml?raw';
+import seCancel from './songs/se-cancel.mml?raw';
+import seDecide from './songs/se-decide.mml?raw';
+import seHit from './songs/se-hit.mml?raw';
+import seItem from './songs/se-item.mml?raw';
 import { renderParams } from './params';
 import { catchUpBar, scheduleBar } from './rhythm';
 
@@ -50,10 +53,16 @@ const POLY_TEST_BASE = 48;
 const RHYTHM_BPM = 120;
 const RHYTHM_TICK_MS = 25;
 const RHYTHM_LOOKAHEAD_SEC = 0.1;
-const MML_TICK_MS = 25;
-const MML_LOOKAHEAD_SEC = 0.1;
-/** 再生ボタンから曲の頭までの余裕 */
-const MML_START_DELAY_SEC = 0.05;
+/** 「フェードして停止」のフェードの長さ（ms） */
+const FADE_MS = 1000;
+
+/** 効果音のボタン。name は data-se に入る */
+const SOUND_EFFECTS: ReadonlyArray<{ name: string; label: string; mml: string }> = [
+  { name: 'decide', label: '決定', mml: seDecide },
+  { name: 'cancel', label: 'キャンセル', mml: seCancel },
+  { name: 'hit', label: '打撃（ドラム）', mml: seHit },
+  { name: 'item', label: 'アイテム', mml: seItem },
+];
 
 const DRUM_LABELS: Readonly<Record<string, string>> = {
   bd: 'バスドラム',
@@ -126,58 +135,88 @@ function formatLoad(report: LoadReport): string {
   ].join('\n');
 }
 
-/** MML の欄：解析してエラーを出し、なければ Player で先読みして鳴らす */
-function setupMml(engine: FmEngine, context: AudioContext, wake: () => void): void {
+/** MML の欄：FmAudio で BGM を鳴らす。エラーがあれば一覧に出し、鳴っている BGM も止める */
+function setupMml(audio: FmAudio, wake: () => void): void {
   const textarea = byId<HTMLTextAreaElement>('mml');
   const errorList = byId('mml-errors');
-  let player: Player | undefined;
-  let timer: number | undefined;
+  const events = byId('bgm-events');
+  let loops = 0;
+  let ends = 0;
+  const showEvents = () => {
+    events.textContent = `ループ ${loops} 回 / 終了 ${ends} 回`;
+  };
 
   textarea.value = demoSong;
-
-  const stopTimer = () => {
-    if (timer !== undefined) {
-      window.clearInterval(timer);
-      timer = undefined;
-    }
-  };
-  const stop = () => {
-    stopTimer();
-    player?.stop();
-    player = undefined;
-  };
+  showEvents();
+  audio.on('loop', () => {
+    loops++;
+    showEvents();
+  });
+  audio.on('end', () => {
+    ends++;
+    showEvents();
+  });
 
   byId('mml-play').addEventListener('click', () => {
     wake();
-    const song = parseMml(textarea.value);
-    if (song.errors.length > 0) {
-      // エラーが 1 つでもあれば再生しない。鳴っている再生も止める
-      stop();
-      listItems(errorList, song.errors.map((e) => `行 ${e.line}・列 ${e.column}：${e.message}`));
-      return;
-    }
-    listItems(errorList, []);
-    stop();
-    const rate = context.sampleRate;
-    const current = new Player(engine, song, {
-      sampleRate: rate,
-      startFrame: Math.round((context.currentTime + MML_START_DELAY_SEC) * rate),
-    });
-    player = current;
-    const tick = () => {
-      const now = context.currentTime * rate;
-      current.pump(now, now + MML_LOOKAHEAD_SEC * rate);
-      // 終わった曲は、送り済みの最後の音が鳴り終わるまで cancel せず、タイマーだけ止める
-      if (current.finished && player === current) stopTimer();
-    };
-    tick();
-    if (player === current) timer = window.setInterval(tick, MML_TICK_MS);
+    const song = audio.load(textarea.value);
+    listItems(errorList, song.errors.map((e) => `行 ${e.line}・列 ${e.column}：${e.message}`));
+    loops = 0;
+    ends = 0;
+    showEvents();
+    // エラーのある曲は playBgm が鳴らさず、鳴っている BGM も止める
+    audio.playBgm(song);
   });
-
-  byId('mml-stop').addEventListener('click', stop);
+  byId('mml-stop').addEventListener('click', () => audio.stopBgm());
+  byId('mml-fade').addEventListener('click', () => audio.stopBgm({ fadeMs: FADE_MS }));
+  byId('mml-pause').addEventListener('click', () => audio.pauseBgm());
+  byId('mml-resume').addEventListener('click', () => {
+    wake();
+    audio.resumeBgm();
+  });
 }
 
-function setup(engine: FmEngine, context: AudioContext): void {
+/** 効果音のボタンと、音量・フィルターの操作 */
+function setupMixer(audio: FmAudio, wake: () => void, onFilterChange: () => void): void {
+  const container = byId('se-buttons');
+  for (const se of SOUND_EFFECTS) {
+    const song = audio.load(se.mml);
+    if (song.errors.length > 0) console.error(`効果音 ${se.name} の MML にエラーがあります`, song.errors);
+    const button = document.createElement('button');
+    button.type = 'button';
+    button.className = 'se';
+    button.dataset.se = se.name;
+    button.textContent = se.label;
+    button.addEventListener('click', () => {
+      wake();
+      audio.playSe(song);
+    });
+    container.appendChild(button);
+  }
+
+  const sliders = [
+    ['volume-master', 'master'],
+    ['volume-bgm', 'bgm'],
+    ['volume-se', 'se'],
+  ] as const;
+  for (const [id, key] of sliders) {
+    const input = byId<HTMLInputElement>(id);
+    const label = byId(`${id}-value`);
+    input.addEventListener('input', () => {
+      label.textContent = input.value;
+      audio.setVolume({ [key]: Number(input.value) / 100 });
+    });
+  }
+
+  byId<HTMLInputElement>('speaker-filter').addEventListener('change', (e) => {
+    audio.setSpeakerFilter((e.target as HTMLInputElement).checked);
+    onFilterChange();
+  });
+}
+
+function setup(audio: FmAudio, onFilterChange: () => void): void {
+  const { engine } = audio;
+  const context = audio.context as AudioContext;
   const voices = bundledVoices();
   const select = byId<HTMLSelectElement>('voice-select');
   const keyboard = byId('keyboard');
@@ -254,7 +293,6 @@ function setup(engine: FmEngine, context: AudioContext): void {
   if (voices[0]) selectVoice(voices[0]);
 
   for (const drum of bundledDrums()) {
-    engine.registerVoice(drum.id, drum);
     const button = document.createElement('button');
     button.type = 'button';
     button.className = 'drum';
@@ -267,17 +305,11 @@ function setup(engine: FmEngine, context: AudioContext): void {
     byId('drums').appendChild(button);
   }
 
-  // MML の @N で使う GM 音色を、それぞれの id に登録する（ドラムは上で 128〜135 に登録済み）
-  for (const raw of gmVoices) {
-    const result = validateVoice(raw);
-    if (!result.ok) continue; // bundledVoices() がすでにエラーを出している
-    const id = result.voice.id;
-    if (id !== null && Number.isInteger(id) && id >= 0 && id <= 127 && id !== KEYBOARD_PROGRAM) engine.registerVoice(id, result.voice);
-  }
+  // MML の @N で使う GM 音色とドラムは、FmAudio.init が登録済み
+  setupMml(audio, wake);
+  setupMixer(audio, wake, onFilterChange);
 
-  setupMml(engine, context, wake);
-
-  engine.onWarning((message) => {
+  audio.on('warning', (message) => {
     const li = document.createElement('li');
     li.textContent = message;
     warnings.appendChild(li);
@@ -438,22 +470,21 @@ byId('start').addEventListener('click', async () => {
     if (audioSession) audioSession.type = 'playback';
     context = new AudioContext();
     void context.resume();
-    const engine = await FmEngine.create(context);
-    // 出力 0 が BGM、出力 1 が効果音。Task 7 で FmAudio に置き換えるまでは両方をそのまま出す
-    engine.node.connect(context.destination, 0);
-    engine.node.connect(context.destination, 1);
+    const audio = await FmAudio.init({ context });
+    // 分析器は audio.output につなぐ。フィルターを切り替えると output が変わるので、つなぎ直す
+    let reconnectAnalyser = () => {};
     if (new URLSearchParams(location.search).has('debug')) {
       const splitter = context.createChannelSplitter(2);
       const left = context.createAnalyser();
       const right = context.createAnalyser();
-      engine.node.connect(splitter, 0);
-      engine.node.connect(splitter, 1);
       splitter.connect(left, 0);
       splitter.connect(right, 1);
+      reconnectAnalyser = () => audio.output.connect(splitter);
+      reconnectAnalyser();
       exposeDebug(left, right);
     }
-    await context.resume();
-    setup(engine, context);
+    await audio.resume();
+    setup(audio, reconnectAnalyser);
     button.hidden = true;
     byId('controls').hidden = false;
   } catch (e) {
