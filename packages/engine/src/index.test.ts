@@ -45,8 +45,8 @@ describe('FmEngine', () => {
     expect(engine.noteOn(0, 60, { time: 100 })).toBe(1);
     expect(engine.noteOn(128, 36, { pan: 10, time: 200 })).toBe(2);
     expect(node.sent).toEqual([
-      { type: 'noteOn', id: 1, program: 0, note: 60, pan: 64, volume: 1, bend: 0, time: 100 },
-      { type: 'noteOn', id: 2, program: 128, note: 36, pan: 10, volume: 1, bend: 0, time: 200 },
+      { type: 'noteOn', id: 1, program: 0, note: 60, pan: 64, volume: 1, bend: 0, group: 'bgm', time: 100 },
+      { type: 'noteOn', id: 2, program: 128, note: 36, pan: 10, volume: 1, bend: 0, group: 'bgm', time: 200 },
     ]);
   });
 
@@ -122,15 +122,28 @@ describe('FmEngine', () => {
     const id = engine.noteOn(0, 60, { time: 10.5 });
     engine.noteOff(id, 20.4);
     expect(node.sent).toEqual([
-      { type: 'noteOn', id, program: 0, note: 60, pan: 64, volume: 1, bend: 0, time: 11 },
+      { type: 'noteOn', id, program: 0, note: 60, pan: 64, volume: 1, bend: 0, group: 'bgm', time: 11 },
       { type: 'noteOff', id, time: 20 },
     ]);
   });
 
+  it('noteOn の group の既定は bgm、se を渡せる、それ以外は RangeError', async () => {
+    const { engine, node } = await createEngine();
+    engine.noteOn(0, 60, { time: 0 });
+    engine.noteOn(0, 60, { time: 0, group: 'se' });
+    expect(node.sent.map((m) => m.type === 'noteOn' && m.group)).toEqual(['bgm', 'se']);
+    expect(() => engine.noteOn(0, 60, { group: 'x' as never })).toThrow(RangeError);
+  });
+
+  it('ノードは出力 2 つ（ステレオ × 2）で作る', async () => {
+    const { node } = await createEngine();
+    expect(node.options).toMatchObject({ numberOfInputs: 0, numberOfOutputs: 2, outputChannelCount: [2, 2] });
+  });
+
   it('noteOn は volume と bend を送る', async () => {
     const { engine, node } = await createEngine();
-    const id = engine.noteOn(0, 60, { volume: 0.5, bend: -100, time: 10 });
-    expect(node.sent).toEqual([{ type: 'noteOn', id, program: 0, note: 60, pan: 64, volume: 0.5, bend: -100, time: 10 }]);
+    const id = engine.noteOn(0, 60, { volume: 0.5, bend: -100, group: 'bgm', time: 10 });
+    expect(node.sent).toEqual([{ type: 'noteOn', id, program: 0, note: 60, pan: 64, volume: 0.5, bend: -100, group: 'bgm', time: 10 }]);
   });
 
   it('setPitchBend・setVolume・cancel のメッセージを送る', async () => {

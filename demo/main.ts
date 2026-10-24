@@ -439,12 +439,15 @@ byId('start').addEventListener('click', async () => {
     context = new AudioContext();
     void context.resume();
     const engine = await FmEngine.create(context);
-    engine.node.connect(context.destination);
+    // 出力 0 が BGM、出力 1 が効果音。Task 7 で FmAudio に置き換えるまでは両方をそのまま出す
+    engine.node.connect(context.destination, 0);
+    engine.node.connect(context.destination, 1);
     if (new URLSearchParams(location.search).has('debug')) {
       const splitter = context.createChannelSplitter(2);
       const left = context.createAnalyser();
       const right = context.createAnalyser();
-      engine.node.connect(splitter);
+      engine.node.connect(splitter, 0);
+      engine.node.connect(splitter, 1);
       splitter.connect(left, 0);
       splitter.connect(right, 1);
       exposeDebug(left, right);

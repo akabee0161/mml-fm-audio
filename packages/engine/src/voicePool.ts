@@ -5,6 +5,9 @@ import type { AnyVoice } from './voiceData';
 /** 同時発音数（spec §2.1。暫定で、負荷の実測を見て見直す） */
 export const MAX_VOICES = 16;
 
+/** 効果音用の同時発音数（BGM とは別に数える。暫定で、負荷の実測を見て見直す） */
+export const SE_VOICES = 4;
+
 /** 複数のボイスへの音の割り当てと、音源全体で 1 つの LFO */
 export class VoicePool {
   private readonly voices: Voice[];

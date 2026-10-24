@@ -1,6 +1,6 @@
 import processorUrl from './processor.ts?worker&url';
 import type { LoadReport } from './loadMeter';
-import { PROCESSOR_NAME, type EngineMessage, type EngineReply } from './messages';
+import { PROCESSOR_NAME, type EngineMessage, type EngineReply, type VoiceGroup } from './messages';
 import type { AnyVoice } from './voiceData';
 
 export { OP_FIELDS, OP_RANGES, opCount, validateDrum, validateVoice } from './voiceData';
@@ -15,7 +15,8 @@ export type {
   ValidationResult,
 } from './voiceData';
 export type { ClockKind, LoadReport } from './loadMeter';
-export { MAX_VOICES } from './voicePool';
+export type { VoiceGroup } from './messages';
+export { MAX_VOICES, SE_VOICES } from './voicePool';
 
 const CENTER_PAN = 64;
 const MAX_BEND = 1200;
@@ -51,7 +52,11 @@ export class FmEngine {
   /** Worklet を読み込んでノードを作る。出力先への接続は呼び出し側で行う */
   static async create(context: BaseAudioContext): Promise<FmEngine> {
     await context.audioWorklet.addModule(processorUrl);
-    const node = new AudioWorkletNode(context, PROCESSOR_NAME, { numberOfInputs: 0, outputChannelCount: [2] });
+    const node = new AudioWorkletNode(context, PROCESSOR_NAME, {
+      numberOfInputs: 0,
+      numberOfOutputs: 2,
+      outputChannelCount: [2, 2],
+    });
     return new FmEngine(context, node);
   }
 
@@ -71,28 +76,30 @@ export class FmEngine {
 
   /**
    * program の音色で note を鳴らし、音の ID を返す。pan は 0〜127（既定 64 が中央）。
-   * volume は 0〜1（既定 1）、bend は −1200〜1200 セント（既定 0）。time はサンプル番号で、小数は丸める
+   * volume は 0〜1（既定 1）、bend は −1200〜1200 セント（既定 0）。time はサンプル番号で、小数は丸める。
+   * group は 'bgm'（既定、ノードの出力 0）か 'se'（出力 1）で、ボイスの割り当てもこの組ごとに分かれる
    */
   noteOn(
     program: number,
     note: number,
-    options: { pan?: number; time?: number; volume?: number; bend?: number } = {},
+    options: { pan?: number; time?: number; volume?: number; bend?: number; group?: VoiceGroup } = {},
   ): number {
-    const { pan = CENTER_PAN, time = this.nowFrame(), volume = 1, bend = 0 } = options;
+    const { pan = CENTER_PAN, time = this.nowFrame(), volume = 1, bend = 0, group = 'bgm' } = options;
     if (
       !isIntIn(program, 0, 255) ||
       !isIntIn(note, 0, 127) ||
       !isIntIn(pan, 0, 127) ||
       !Number.isFinite(time) ||
       !isFiniteIn(volume, 0, 1) ||
-      !isFiniteIn(bend, -MAX_BEND, MAX_BEND)
+      !isFiniteIn(bend, -MAX_BEND, MAX_BEND) ||
+      (group !== 'bgm' && group !== 'se')
     ) {
       throw new RangeError(
-        `noteOn: program は 0〜255、note と pan は 0〜127 の整数、time は有限の数値、volume は 0〜1、bend は −${MAX_BEND}〜${MAX_BEND} にしてください（program=${program}, note=${note}, pan=${pan}, time=${time}, volume=${volume}, bend=${bend}）`,
+        `noteOn: program は 0〜255、note と pan は 0〜127 の整数、time は有限の数値、volume は 0〜1、bend は −${MAX_BEND}〜${MAX_BEND}、group は 'bgm' か 'se' にしてください（program=${program}, note=${note}, pan=${pan}, time=${time}, volume=${volume}, bend=${bend}, group=${String(group)}）`,
       );
     }
     const id = this.nextId++;
-    this.send({ type: 'noteOn', id, program, note, pan, volume, bend, time: Math.round(time) });
+    this.send({ type: 'noteOn', id, program, note, pan, volume, bend, group, time: Math.round(time) });
     return id;
   }
 
