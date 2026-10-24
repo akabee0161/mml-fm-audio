@@ -303,6 +303,62 @@ describe('FmAudio', () => {
     }
   });
 
+  it('先読みは 0.1 秒：0.1 秒より先の音は最初の pump で送らず、手前の音は送る', () => {
+    const { audio, context, noteOns } = setup();
+    // 曲の頭は 0.05 秒。1 ティックは 0.5 / 96 秒なので、ノートは 0.05、約 0.081、約 0.118 秒
+    audio.playBgm(audio.load('A t120 c%1 r%5 d%1 r%6 e%1'));
+    expect(noteOns.map((n) => n.note)).toEqual([60, 62]);
+    tickAt(context, 0); // 時計が進んでいなければ先読みの範囲も変わらない
+    expect(noteOns.map((n) => n.note)).toEqual([60, 62]);
+    tickAt(context, 0.025); // 〜0.125 秒
+    expect(noteOns.map((n) => n.note)).toEqual([60, 62, 64]);
+  });
+
+  it('効果音は、1 つ目が鳴っている最中に 2 つ目が始まる（Player が 2 つ同時にある）', () => {
+    const { audio, context, noteOns, engine } = setup();
+    const se = audio.load('A c4'); // 0.5 秒
+    audio.playSe(se);
+    tickAt(context, 0.025);
+    audio.playSe(se);
+    expect(noteOns).toHaveLength(2);
+    expect(fn(engine.noteOff)).not.toHaveBeenCalled(); // 1 つ目はまだノートオフに達していない
+    tickAt(context, 0.3);
+    expect(fn(engine.noteOff)).not.toHaveBeenCalled();
+    tickAt(context, 0.46); // 先読み〜0.56 秒：1 つ目のノートオフ（0.55 秒）が入る。2 つ目（0.575 秒）はまだ
+    expect(fn(engine.noteOff)).toHaveBeenCalledTimes(1);
+    tickAt(context, 0.6);
+    expect(fn(engine.noteOff)).toHaveBeenCalledTimes(2);
+    tickAt(context, 1);
+    expect(vi.getTimerCount()).toBe(0);
+  });
+
+  it('on に知らない種類や関数でない handler を渡すと RangeError', () => {
+    const { audio } = setup();
+    expect(() => audio.on('x' as never, () => {})).toThrow(RangeError);
+    expect(() => audio.on('end', 'f' as never)).toThrow(RangeError);
+    expect(() => audio.on('loop', null as never)).toThrow(RangeError);
+  });
+
+  it('フェード中に L のない曲が終わりまで来たら end を呼び、bgmFade は次の playBgm で 1 へ戻す', () => {
+    const { audio, context, gains, silences } = setup();
+    const bgmFade = gains[0]!;
+    const ends = vi.fn();
+    audio.on('end', ends);
+    audio.playBgm(audio.load('A c4')); // 終わりは 0.55 秒
+    tickAt(context, 0.025);
+    audio.stopBgm({ fadeMs: 5000 });
+    tickAt(context, 0.6);
+    expect(ends).toHaveBeenCalledTimes(1);
+    tickAt(context, 0.7);
+    expect(vi.getTimerCount()).toBe(0);
+    expect(silences).toEqual([]); // フェードを下げ終えたわけではないので silence しない
+    expect(fn(bgmFade.gain.linearRampToValueAtTime)).toHaveBeenCalledTimes(1); // 戻していない
+    audio.playBgm(audio.load('A L c4'));
+    const back = fn(bgmFade.gain.linearRampToValueAtTime).mock.calls.at(-1)!;
+    expect(back[0]).toBe(1);
+    expect(back[1]).toBeCloseTo(0.75, 6);
+  });
+
   it('音源の警告を warning として渡す', () => {
     const { audio, warn } = setup();
     const warnings: string[] = [];
