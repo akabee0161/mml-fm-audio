@@ -212,13 +212,15 @@ export class Player {
   /**
    * nowFrame の時点で止める。持続中のノート（ノートオンが nowFrame より前）はキーオフして再開後も鳴らし直さず、
    * 先読みで送り済みのノート（ノートオンが nowFrame 以降）は cancel して再開後に送り直す。
-   * 一時停止中・停止後は何もしない
+   * 一時停止中・停止後は何もしない。nowFrame が有限の数でなければ RangeError
    */
   pause(nowFrame: number): void {
+    if (!Number.isFinite(nowFrame)) throw new RangeError(`pause: nowFrame は有限の数にしてください（nowFrame=${nowFrame}）`);
     if (this.stopped || this.pausedAt !== null) return;
     this.pausedAt = nowFrame;
     const songNow = nowFrame - this.shift;
-    this.lastNowFrame = songNow;
+    // 直近の pump より前の時刻を渡されても、cancel の対象（ノートオフが過ぎていないもの）を広げない
+    this.lastNowFrame = Math.max(this.lastNowFrame, songNow);
     const ids = this.cancelableIds();
     for (const n of this.sent) {
       if (n.onFrame < songNow) n.dropped = true;
@@ -230,21 +232,28 @@ export class Player {
     if (ids.length > 0) this.engine.cancel(ids);
   }
 
-  /** 一時停止した位置から続ける。以後のすべての時刻を、止めていた分だけ後ろへずらす。一時停止していなければ何もしない */
+  /**
+   * 一時停止した位置から続ける。以後のすべての時刻を、止めていた分だけ後ろへずらす。一時停止していなければ何もしない。
+   * nowFrame が有限の数でない、または一時停止した時刻より前なら RangeError（状態は変えない）
+   */
   resume(nowFrame: number): void {
+    if (!Number.isFinite(nowFrame)) throw new RangeError(`resume: nowFrame は有限の数にしてください（nowFrame=${nowFrame}）`);
     if (this.pausedAt === null) return;
+    if (nowFrame < this.pausedAt) {
+      throw new RangeError(`resume: nowFrame は一時停止した時刻 ${this.pausedAt} 以降にしてください（nowFrame=${nowFrame}）`);
+    }
     this.shift += nowFrame - this.pausedAt;
     this.pausedAt = null;
   }
 
-  /** pass 回目（1 以上）の周の頭（L の位置）が鳴る時刻。一時停止のずれを含む */
+  /** pass 回目（1 以上）の周の頭（L の位置）が鳴る時刻。再開済みの一時停止のずれを含む。一時停止中は今回の停止の分を含まず、resume の後に増える */
   loopFrame(pass: number): number {
     if (this.loopStart === null) throw new RangeError('ループしない曲に loopFrame は使えません');
     if (!Number.isInteger(pass) || pass < 1) throw new RangeError(`pass は 1 以上の整数です（${pass}）`);
     return this.passStartFrame(pass) + this.shift;
   }
 
-  /** ループしない曲の終わり（song.length）が鳴る時刻。ループする曲では null */
+  /** ループしない曲の終わり（song.length）が鳴る時刻。ループする曲では null。一時停止中は今回の停止の分を含まず、resume の後に増える（loopFrame と同じ） */
   get endFrame(): number | null {
     if (this.loopStart !== null) return null;
     return this.frame(0, this.song.length) + this.shift;

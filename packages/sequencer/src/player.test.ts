@@ -353,6 +353,78 @@ describe('一時停止・再開', () => {
     expect(plain.endFrame).toBe(53000);
   });
 
+  it('pause・resume は有限でない nowFrame と、一時停止した時刻より前の resume を理由つきの RangeError にして、状態を変えない', () => {
+    const { player, calls } = make('A c4 d4');
+    player.pump(0, 4800);
+    for (const bad of [Number.NaN, Infinity, -Infinity]) {
+      expect(() => player.pause(bad)).toThrow(RangeError);
+      expect(() => player.resume(bad)).toThrow(/resume.*有限/);
+    }
+    expect(player.paused).toBe(false);
+    player.pause(12000);
+    for (const bad of [Number.NaN, Infinity]) expect(() => player.resume(bad)).toThrow(RangeError);
+    expect(() => player.resume(11999)).toThrow(/resume.*12000/);
+    expect(player.paused).toBe(true);
+    player.resume(60000); // 状態が変わっていないので、正しい値なら再開できる
+    calls.length = 0;
+    player.pump(60000, 1e9);
+    expect(ons(calls).map((c) => c.type === 'noteOn' && c.time)).toEqual([72000]);
+  });
+
+  it('先読みが次の周の頭にかかった状態で pause しても、各ノートは再開後に 1 回ずつしか鳴らない', () => {
+    const { player, calls } = make('A L c4 d4'); // 1 周 48000 フレーム
+    player.pump(0, 49000); // 先読みが 2 周目の頭（48000）を越えている
+    expect(ons(calls).map((c) => c.type === 'noteOn' && c.time)).toEqual([0, 24000, 48000]);
+    player.pause(20000);
+    // 20000 より前に鳴り始めた c は持続中（再開後に鳴らし直さない）。それ以後の d と 2 周目の c は cancel して送り直す
+    expect(calls.filter((c) => c.type === 'cancel')).toEqual([{ type: 'cancel', ids: [1, 2, 3] }]);
+    player.resume(100000); // 80000 フレームずらす
+    calls.length = 0;
+    player.pump(100000, 100000 + 49000);
+    player.pump(120000, 120000 + 49000);
+    // 1 回目の pump で d（104000）と 2 周目の c（128000）、2 回目の pump で 2 周目の d（152000）。重複はない
+    expect(ons(calls).map((c) => c.type === 'noteOn' && c.time)).toEqual([104000, 128000, 152000]);
+    expect(player.loopFrame(1)).toBe(128000);
+    expect(player.loopFrame(2)).toBe(176000);
+  });
+
+  it('3 回以上の一時停止で、ずらす分が積み上がる', () => {
+    const { player, calls } = make('A c4 d4 e4');
+    player.pause(1000);
+    player.resume(2000); // +1000
+    player.pause(3000);
+    player.resume(5000); // +2000（合計 3000）
+    player.pause(6000);
+    player.resume(6500); // +500（合計 3500）
+    expect(player.endFrame).toBe(72000 + 3500);
+    player.pump(3500, 1e9);
+    expect(ons(calls).map((c) => c.type === 'noteOn' && c.time)).toEqual([3500, 27500, 51500]);
+  });
+
+  it('一時停止中の loopFrame・endFrame は、今回の停止の分を含まない（resume の後に増える）', () => {
+    const loop = make('A L c4 d4').player;
+    loop.pause(1000);
+    expect(loop.loopFrame(1)).toBe(48000);
+    loop.resume(5000);
+    expect(loop.loopFrame(1)).toBe(52000);
+    const plain = make('A c4 d4').player;
+    plain.pause(1000);
+    expect(plain.endFrame).toBe(48000);
+    plain.resume(5000);
+    expect(plain.endFrame).toBe(52000);
+  });
+
+  it('pause → stop → resume → pump で、何も送らない', () => {
+    const { player, calls } = make('A c4 d4');
+    player.pump(0, 4800);
+    player.pause(12000);
+    player.stop();
+    player.resume(60000);
+    calls.length = 0;
+    player.pump(60000, 1e9);
+    expect(calls).toEqual([]);
+  });
+
   it('ループ終了を越えるタイが 2 万個続く曲でも、1 回の pump が重くならない', () => {
     const { player } = make('A t999 L r%1 c%1 E ' + '&c1'.repeat(20000));
     let max = 0;
