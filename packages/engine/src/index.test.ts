@@ -50,6 +50,12 @@ describe('FmEngine', () => {
     ]);
   });
 
+  it('cancel に配列でない値を渡すと RangeError', async () => {
+    const { engine } = await createEngine();
+    expect(() => engine.cancel(5 as unknown as number[])).toThrow(RangeError);
+    expect(() => engine.cancel(null as unknown as number[])).toThrow(RangeError);
+  });
+
   it('noteOff は ID を送る', async () => {
     const { engine, node } = await createEngine();
     engine.noteOff(3, 100);

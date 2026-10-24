@@ -118,7 +118,7 @@ export class FmEngine {
 
   /** ids の、まだ処理していないイベントを捨て、鳴っていればキーオフする */
   cancel(ids: readonly number[]): void {
-    if (!ids.every((id) => Number.isInteger(id))) {
+    if (!Array.isArray(ids) || !ids.every((id) => Number.isInteger(id))) {
       throw new RangeError(`cancel: ids は整数の配列にしてください（ids=${JSON.stringify(ids)}）`);
     }
     this.send({ type: 'cancel', ids: [...ids] });

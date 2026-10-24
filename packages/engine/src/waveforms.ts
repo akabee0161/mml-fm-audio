@@ -52,6 +52,12 @@ function special(wave: number, x: number): number {
 
 /** 波形 wave の、1 周期を 0〜1 とした位置 x での値（-1〜1） */
 export function waveValue(wave: number, x: number): number {
+  if (!Number.isInteger(wave) || wave < 0 || wave > 31) {
+    throw new RangeError(`waveValue: wave は 0〜31 の整数にしてください（wave=${wave}）`);
+  }
+  if (!Number.isFinite(x) || x < 0 || x >= 1) {
+    throw new RangeError(`waveValue: x は 0 以上 1 未満の数にしてください（x=${x}）`);
+  }
   const variant = wave & 7;
   if (variant >= 6) return special(wave, x);
   return cut(BASES[wave >> 3]!, variant, x);
