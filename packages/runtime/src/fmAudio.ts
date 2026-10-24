@@ -216,6 +216,7 @@ export class FmAudio {
       gain.linearRampToValueAtTime(1, now + START_MARGIN_SECONDS);
       this.fadeLowered = false;
     }
+    this.pumpNow(this.bgm.player);
     this.ensureTimer();
   }
 
@@ -331,7 +332,9 @@ export class FmAudio {
       cancel: (ids) => this.rt.cancel(ids),
     };
     const once: Song = { ...song, loopStart: null, loopEnd: song.length };
-    this.sePlayers.add(new Player(se, once, this.playerOptions()));
+    const player = new Player(se, once, this.playerOptions());
+    this.sePlayers.add(player);
+    this.pumpNow(player);
     this.ensureTimer();
   }
 
@@ -357,6 +360,12 @@ export class FmAudio {
   private playerOptions() {
     const sampleRate = this.ctx.sampleRate;
     return { sampleRate, startFrame: Math.round((this.ctx.currentTime + START_MARGIN_SECONDS) * sampleRate) };
+  }
+
+  /** 鳴らし始めた直後に 1 回送る。最初の tick が遅れても、最初のノートが消えないように */
+  private pumpNow(player: Player): void {
+    const now = this.ctx.currentTime * this.ctx.sampleRate;
+    player.pump(now, now + LOOKAHEAD_SECONDS * this.ctx.sampleRate);
   }
 
   private emit(type: EventType, message?: string): void {

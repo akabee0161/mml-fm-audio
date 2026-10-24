@@ -124,9 +124,9 @@ describe('FmAudio', () => {
   it('playBgm した曲のノートを BGM 側（group: bgm）へ、25 ms ごとに 0.1 秒先まで送る', () => {
     const { audio, run, noteOns } = setup();
     audio.playBgm(audio.load('A c4 d4 e4'));
-    expect(noteOns).toHaveLength(0);
+    // 呼んだ直後に 1 回 pump する。曲の頭は 0.05 秒で、0.1 秒先までの c だけ
+    expect(noteOns.map((n) => n.note)).toEqual([60]);
     run(0.025);
-    // 曲の頭は 0.05 秒。0.025 + 0.1 までの c だけ
     expect(noteOns.map((n) => n.note)).toEqual([60]);
     expect(noteOns[0]).toMatchObject({ group: 'bgm', time: 2400 });
     run(1);
@@ -168,6 +168,19 @@ describe('FmAudio', () => {
     const after = noteOns.slice(before);
     expect(after.length).toBeGreaterThan(0);
     expect(after.every((n) => n.program === 2)).toBe(true);
+  });
+
+  it('最初の tick が 60 ms 遅れても、playBgm・playSe の直後に 1 回 pump するので最初のノートは消えない', () => {
+    const bgm = setup();
+    bgm.audio.playBgm(bgm.audio.load('A t180 l16 e b4')); // e は 0.05 秒、b は約 0.133 秒
+    bgm.context.currentTime = 0.06;
+    vi.advanceTimersByTime(25);
+    expect(bgm.noteOns.map((n) => n.note)).toEqual([64, 71]);
+    const se = setup();
+    se.audio.playSe(se.audio.load('A t180 l16 e b4'));
+    se.context.currentTime = 0.06;
+    vi.advanceTimersByTime(25);
+    expect(se.noteOns.map((n) => n.note)).toEqual([64, 71]);
   });
 
   it('エラーのある曲を playBgm すると何も送らず、鳴っている BGM を止め、warning を 1 回出す', () => {
