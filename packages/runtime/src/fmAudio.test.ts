@@ -453,9 +453,9 @@ describe('FmAudio', () => {
     audio.on('loop', loops);
     audio.playBgm(audio.load('A L c4 d4')); // 周の頭は 1.05、2.05 秒
     tickAt(context, 0.025);
-    tickAt(context, 0.5); // 2 つ目のノート（0.55 秒）まで送り済み
+    tickAt(context, 0.46); // 2 つ目のノート（0.55 秒）まで送り済み
     expect(noteOns).toHaveLength(2);
-    audio.pauseBgm();
+    audio.pauseBgm(); // 止める時刻は 0.51 秒
     expect(cancels).toHaveLength(1);
     vi.advanceTimersByTime(25); // 次のタイマーで止まる
     expect(vi.getTimerCount()).toBe(0);
@@ -463,7 +463,7 @@ describe('FmAudio', () => {
     vi.advanceTimersByTime(100);
     expect(loops).not.toHaveBeenCalled();
     expect(noteOns).toHaveLength(2);
-    audio.resumeBgm(); // 5 秒の時点で続きから。2 周目の頭は 5 + (1.05 - 0.5) = 5.55 秒
+    audio.resumeBgm(); // 5.05 秒から続ける。2 周目の頭は 5.05 + (1.05 - 0.51) = 5.59 秒
     expect(vi.getTimerCount()).toBe(1);
     tickAt(context, 5.0);
     expect(noteOns).toHaveLength(3); // 止める前に送り済みだった 2 つ目のノートを送り直す
@@ -471,6 +471,36 @@ describe('FmAudio', () => {
     expect(loops).not.toHaveBeenCalled();
     tickAt(context, 5.7);
     expect(loops).toHaveBeenCalledTimes(1);
+  });
+
+  it('pauseBgm は currentTime + 0.05 秒を止める時刻にする。その間にノートオンするノートは持続中として扱い、再開後に鳴らし直さない', () => {
+    const { audio, context, noteOns, cancels } = setup();
+    audio.playBgm(audio.load('A t120 l4 c d e')); // ノートオンは 0.05、0.55、1.05 秒。d は 62
+    tickAt(context, 0.5); // d（0.55 秒）まで送り済み
+    expect(noteOns.map((n) => n.note)).toEqual([60, 62]);
+    context.currentTime = 0.52; // d は呼んだ 0.03 秒後（< 0.05 秒）に鳴る
+    audio.pauseBgm();
+    expect(cancels.at(-1)).toContain(noteOns[1]!.id);
+    context.currentTime = 3;
+    audio.resumeBgm();
+    tickAt(context, 3.0);
+    tickAt(context, 3.2);
+    expect(noteOns.filter((n) => n.note === 62)).toHaveLength(1);
+  });
+
+  it('pauseBgm から 0.08 秒後に鳴るノートは cancel し、再開後に 1 回だけ送り直す（resumeBgm の時刻も currentTime + 0.05 秒）', () => {
+    const { audio, context, noteOns } = setup();
+    audio.playBgm(audio.load('A t120 l4 c d e'));
+    tickAt(context, 0.47); // d（0.55 秒）まで送り済み
+    expect(noteOns.map((n) => n.note)).toEqual([60, 62]);
+    audio.pauseBgm(); // 止める時刻は 0.52 秒、d は 0.03 秒後
+    context.currentTime = 3;
+    audio.resumeBgm(); // 続きは 3.05 秒から。d は 3.05 + 0.03 = 3.08 秒
+    tickAt(context, 3.0);
+    tickAt(context, 3.2);
+    const ds = noteOns.filter((n) => n.note === 62);
+    expect(ds).toHaveLength(2);
+    expect(ds[1]!.time / SR).toBeCloseTo(3.08, 6);
   });
 
   it('一時停止中の L なし BGM は end を呼ばず、再開後に曲の終わりで呼ぶ', () => {

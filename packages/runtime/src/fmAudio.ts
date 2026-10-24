@@ -259,14 +259,14 @@ export class FmAudio {
       this.dropBgm(bgm);
       return;
     }
-    bgm.player.pause(this.ctx.currentTime * this.ctx.sampleRate);
+    bgm.player.pause(this.safeFrame());
   }
 
   /** 一時停止した BGM を、止めた位置から続ける。一時停止中でなければ何もしない */
   resumeBgm(): void {
     const bgm = this.bgm;
     if (!bgm || !bgm.player.paused) return;
-    bgm.player.resume(this.ctx.currentTime * this.ctx.sampleRate);
+    bgm.player.resume(this.safeFrame());
     this.ensureTimer();
   }
 
@@ -360,6 +360,14 @@ export class FmAudio {
   private playerOptions() {
     const sampleRate = this.ctx.sampleRate;
     return { sampleRate, startFrame: Math.round((this.ctx.currentTime + START_MARGIN_SECONDS) * sampleRate) };
+  }
+
+  /**
+   * 一時停止・再開の時刻（フレーム）。currentTime より START_MARGIN 先。
+   * すでに音源へ送り済みで、この余裕の中で鳴り始めるノートは持続中として扱う（再開後に鳴らし直さない）
+   */
+  private safeFrame(): number {
+    return (this.ctx.currentTime + START_MARGIN_SECONDS) * this.ctx.sampleRate;
   }
 
   /** 鳴らし始めた直後に 1 回送る。最初の tick が遅れても、最初のノートが消えないように */
