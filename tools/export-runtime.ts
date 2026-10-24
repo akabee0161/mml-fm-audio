@@ -7,6 +7,8 @@ import { fileURLToPath } from 'node:url';
 
 const REPO_ROOT = fileURLToPath(new URL('..', import.meta.url));
 const UPSTREAM_URL = 'https://github.com/akabee0161/mml-fm-audio';
+/** UPSTREAM.md に書く「コピー元」の行。コピー先を入れ替えてよいかの照合にも使う（部分一致にしない） */
+const UPSTREAM_LINE = `- コピー元：${UPSTREAM_URL}`;
 
 /** コピーするフォルダ（リポジトリからの相対パス）。中のテストは除く */
 const SOURCE_DIRS = ['packages/engine/src', 'packages/sequencer/src', 'packages/runtime/src'];
@@ -33,7 +35,7 @@ function upstreamText(info: ExportInfo): string {
 
 このフォルダは、FM 音源ライブラリ mml-fm-audio のうち、ゲームが使う部分だけをコピーしたもの。
 
-- コピー元：${UPSTREAM_URL}
+${UPSTREAM_LINE}
 - commit：${info.commit}
 - コピーした日：${info.date}
 ${dirtyNote}
@@ -77,7 +79,7 @@ function realPathOf(path: string): string {
     rest.unshift(current.slice(dirname(current).length + 1));
     current = dirname(current);
   }
-  return join(realpathSync(current), ...rest);
+  return join(realpathSync.native(current), ...rest);
 }
 
 function isInside(parent: string, child: string): boolean {
@@ -88,7 +90,7 @@ function isInside(parent: string, child: string): boolean {
 /** コピー先を検査し、入れ替えてよいときは中身を空にする。書いてはいけないときは例外を投げる */
 function prepareDest(dest: string): void {
   const realDest = realPathOf(dest);
-  const realRepo = realpathSync(REPO_ROOT);
+  const realRepo = realpathSync.native(REPO_ROOT);
   if (isInside(realRepo, realDest) || isInside(realDest, realRepo)) {
     throw new Error(`コピー先がこのリポジトリの中、またはこのリポジトリを含むフォルダのため、何も書かずに止めました：${dest}`);
   }
@@ -110,7 +112,7 @@ function prepareDest(dest: string): void {
         '前回のコピーが途中で失敗した跡かもしれません。その場合は、中身を確かめてから手で消してください。',
     );
   }
-  if (!readFileSync(markerPath, 'utf8').includes(UPSTREAM_URL)) {
+  if (!readFileSync(markerPath, 'utf8').split(/\r?\n/).includes(UPSTREAM_LINE)) {
     throw new Error(`コピー先の UPSTREAM.md が、このリポジトリ（${UPSTREAM_URL}）のコピーのものではないため、何も書かずに止めました：${dest}`);
   }
   // コピー先の直下だけを消す。rm は symlink をたどらず、リンクそのものを消す
@@ -160,8 +162,10 @@ if (import.meta.main) {
   }
   try {
     const info = currentSource();
-    exportRuntime(dest, info);
-    console.log(`コピーしました：${resolve(dest)}（commit ${info.commit.slice(0, 7)}${info.dirty ? '、未コミットの変更あり' : ''}）`);
+    // npm run はコマンドのあるリポジトリのルートへ移ってから動くので、相対パスは npm run を実行した場所（INIT_CWD）から解く
+    const target = resolve(process.env.INIT_CWD ?? process.cwd(), dest);
+    exportRuntime(target, info);
+    console.log(`コピーしました：${target}（commit ${info.commit.slice(0, 7)}${info.dirty ? '、未コミットの変更あり' : ''}）`);
   } catch (e) {
     console.error((e as Error).message);
     process.exit(1);

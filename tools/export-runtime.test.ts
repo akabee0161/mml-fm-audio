@@ -1,3 +1,4 @@
+import { execFileSync } from 'node:child_process';
 import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, statSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
@@ -22,6 +23,16 @@ beforeEach(() => {
 });
 afterEach(() => {
   rmSync(work, { recursive: true, force: true });
+});
+
+describe('コマンドとして実行する', () => {
+  it('相対パスは、npm run を実行した場所（INIT_CWD）を基準に解く', () => {
+    const script = fileURLToPath(new URL('./export-runtime.ts', import.meta.url));
+    // cwd はリポジトリのルート（npm run が移る場所）。INIT_CWD が基準なら work/copied に書かれる
+    execFileSync('node', [script, 'copied'], { cwd: REPO_ROOT, env: { ...process.env, INIT_CWD: work }, encoding: 'utf8' });
+    expect(existsSync(join(work, 'copied', 'UPSTREAM.md'))).toBe(true);
+    expect(existsSync(join(REPO_ROOT, 'copied', 'UPSTREAM.md'))).toBe(false);
+  });
 });
 
 describe('exportRuntime', () => {
@@ -80,13 +91,35 @@ describe('exportRuntime', () => {
     expect(readdirSync(dest)).toEqual(['keep.txt']);
   });
 
-it('別のリポジトリの UPSTREAM.md があるフォルダには書かずに止める', () => {
+  it('別のリポジトリの UPSTREAM.md があるフォルダには書かずに止める', () => {
     const dest = join(work, 'forge-copy');
     mkdirSync(dest);
     writeFileSync(join(dest, 'UPSTREAM.md'), 'コピー元：https://github.com/example/other\n');
     writeFileSync(join(dest, 'keep.txt'), 'x');
     expect(() => exportRuntime(dest, INFO)).toThrow(/UPSTREAM\.md/);
     expect(readdirSync(dest).sort()).toEqual(['UPSTREAM.md', 'keep.txt']);
+  });
+
+  it('UPSTREAM.md の「コピー元」の行が、前方一致するだけの別の URL なら止める', () => {
+    const dest = join(work, 'fork-copy');
+    mkdirSync(dest);
+    writeFileSync(join(dest, 'UPSTREAM.md'), '- コピー元：https://github.com/akabee0161/mml-fm-audio-fork\n');
+    writeFileSync(join(dest, 'keep.txt'), 'x');
+    expect(() => exportRuntime(dest, INFO)).toThrow(/UPSTREAM\.md/);
+    expect(readdirSync(dest).sort()).toEqual(['UPSTREAM.md', 'keep.txt']);
+  });
+
+  it('UPSTREAM.md がフォルダや symlink のときも止める', () => {
+    const asDir = join(work, 'marker-dir');
+    mkdirSync(join(asDir, 'UPSTREAM.md'), { recursive: true });
+    expect(() => exportRuntime(asDir, INFO)).toThrow(/UPSTREAM\.md/);
+    const real = join(work, 'real.md');
+    writeFileSync(real, '- コピー元：https://github.com/akabee0161/mml-fm-audio\n');
+    const asLink = join(work, 'marker-link');
+    mkdirSync(asLink);
+    symlinkSync(real, join(asLink, 'UPSTREAM.md'));
+    expect(() => exportRuntime(asLink, INFO)).toThrow(/UPSTREAM\.md/);
+    expect(readFileSync(real, 'utf8')).toContain('コピー元');
   });
 
   it('UPSTREAM.md のない既存のフォルダで止めるときは、途中で失敗した跡かもしれないと伝える', () => {
