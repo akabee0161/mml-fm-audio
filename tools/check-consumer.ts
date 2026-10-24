@@ -2,7 +2,7 @@
 // ゲームのリポジトリに取り込んだときと同じ状況を、一時フォルダで作る。
 // 実行：npm run check:browser の最後に呼ばれる（単独でも node tools/check-consumer.ts で動く）
 import { execFileSync } from 'node:child_process';
-import { mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { homedir, tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -83,6 +83,13 @@ function check(condition: boolean, message: string): void {
   console.log(`OK: ${message}`);
 }
 
+/** dir の下のファイルのパスを全部挙げる */
+function filesUnder(dir: string): string[] {
+  return readdirSync(dir, { withFileTypes: true }).flatMap((e) =>
+    e.isDirectory() ? filesUnder(join(dir, e.name)) : [join(dir, e.name)],
+  );
+}
+
 const tmpRoot = mkdtempSync(join(tmpdir(), 'mml-fm-audio-consumer-'));
 let browser: import('playwright-core').Browser | undefined;
 let server: Awaited<ReturnType<typeof preview>> | undefined;
@@ -91,8 +98,14 @@ try {
   writeFileSync(join(tmpRoot, 'index.html'), INDEX_HTML);
   writeFileSync(join(tmpRoot, 'main.ts'), MAIN_TS);
   writeFileSync(join(tmpRoot, 'tsconfig.json'), JSON.stringify(TSCONFIG, null, 2));
-  // 型定義（vite/client など）と typescript・vite は、このリポジトリのものを使う
-  symlinkSync(join(REPO_ROOT, 'node_modules'), join(tmpRoot, 'node_modules'));
+  // 型検査と build に要るものだけを、このリポジトリの node_modules から個別につなぐ。
+  // workspaces の @mml-fm-audio/* は入れない（コピーに裸の import が混ざったら、ここで落とすため）
+  mkdirSync(join(tmpRoot, 'node_modules'));
+  for (const name of ['typescript', 'vite', 'vitest', '@types']) {
+    symlinkSync(join(REPO_ROOT, 'node_modules', name), join(tmpRoot, 'node_modules', name));
+  }
+  const bare = filesUnder(join(tmpRoot, 'mml-fm-audio')).filter((p) => readFileSync(p, 'utf8').includes('@mml-fm-audio'));
+  check(bare.length === 0, `コピーのソースに @mml-fm-audio の裸の import がない（${bare.join('、')}）`);
   check(true, `一時フォルダへコピーした（${tmpRoot}）`);
 
   try {
@@ -141,7 +154,11 @@ try {
     return max;
   };
   const waitSilent = async () => {
-    for (let i = 0; i < 60 && (await peak()) > 0.001; i++) await page.waitForTimeout(100);
+    for (let i = 0; i < 60; i++) {
+      if ((await peak()) <= 0.001) return;
+      await page.waitForTimeout(100);
+    }
+    throw new Error(`6 秒待っても無音にならない（BGM が止まらない、または効果音の前に残っている）：${await peak()}`);
   };
 
   await page.evaluate(() => window.playBgm('A t120 l8 cdefgab>c'));

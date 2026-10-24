@@ -1,8 +1,8 @@
 // ゲームのリポジトリへ、ゲームが使う部分（runtime・engine・sequencer と音色）だけをフォルダごとコピーする。
 // 使い方：npm run export:runtime -- <コピー先>
 import { execFileSync } from 'node:child_process';
-import { cpSync, lstatSync, mkdirSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
-import { dirname, join, resolve } from 'node:path';
+import { cpSync, lstatSync, mkdirSync, readdirSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
+import { dirname, isAbsolute, join, relative, resolve, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const REPO_ROOT = fileURLToPath(new URL('..', import.meta.url));
@@ -69,8 +69,29 @@ function lstatOrUndefined(path: string) {
   }
 }
 
+/** 存在する一番近い祖先の実パスに、残りをつないだもの（まだ無いコピー先でも symlink を解いた位置を得る） */
+function realPathOf(path: string): string {
+  const rest: string[] = [];
+  let current = resolve(path);
+  while (lstatOrUndefined(current) === undefined) {
+    rest.unshift(current.slice(dirname(current).length + 1));
+    current = dirname(current);
+  }
+  return join(realpathSync(current), ...rest);
+}
+
+function isInside(parent: string, child: string): boolean {
+  const rel = relative(parent, child);
+  return rel === '' || (!rel.startsWith(`..${sep}`) && rel !== '..' && !isAbsolute(rel));
+}
+
 /** コピー先を検査し、入れ替えてよいときは中身を空にする。書いてはいけないときは例外を投げる */
 function prepareDest(dest: string): void {
+  const realDest = realPathOf(dest);
+  const realRepo = realpathSync(REPO_ROOT);
+  if (isInside(realRepo, realDest) || isInside(realDest, realRepo)) {
+    throw new Error(`コピー先がこのリポジトリの中、またはこのリポジトリを含むフォルダのため、何も書かずに止めました：${dest}`);
+  }
   const stat = lstatOrUndefined(dest);
   if (stat === undefined) return;
   if (stat.isSymbolicLink()) {
@@ -81,11 +102,16 @@ function prepareDest(dest: string): void {
   }
   const entries = readdirSync(dest);
   if (entries.length === 0) return;
-  const marker = lstatOrUndefined(join(dest, 'UPSTREAM.md'));
+  const markerPath = join(dest, 'UPSTREAM.md');
+  const marker = lstatOrUndefined(markerPath);
   if (marker === undefined || !marker.isFile()) {
     throw new Error(
-      `コピー先に UPSTREAM.md がありません。別のフォルダを消さないよう、何も書かずに止めました：${dest}`,
+      `コピー先に UPSTREAM.md がありません。別のフォルダを消さないよう、何も書かずに止めました：${dest}\n` +
+        '前回のコピーが途中で失敗した跡かもしれません。その場合は、中身を確かめてから手で消してください。',
     );
+  }
+  if (!readFileSync(markerPath, 'utf8').includes(UPSTREAM_URL)) {
+    throw new Error(`コピー先の UPSTREAM.md が、このリポジトリ（${UPSTREAM_URL}）のコピーのものではないため、何も書かずに止めました：${dest}`);
   }
   // コピー先の直下だけを消す。rm は symlink をたどらず、リンクそのものを消す
   for (const name of entries) rmSync(join(dest, name), { recursive: true, force: true });

@@ -1,9 +1,11 @@
 import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, statSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { dirname, join } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { afterEach, beforeEach } from 'vitest';
 import { exportRuntime } from './export-runtime.ts';
 
+const REPO_ROOT = fileURLToPath(new URL('..', import.meta.url));
 const INFO = { commit: 'abc1234def', date: '2026-10-24' };
 
 /** dir の下のファイルを、dir からの相対パスで全部挙げる */
@@ -76,6 +78,34 @@ describe('exportRuntime', () => {
     writeFileSync(join(dest, 'keep.txt'), 'x');
     expect(() => exportRuntime(dest, INFO)).toThrow(/UPSTREAM\.md/);
     expect(readdirSync(dest)).toEqual(['keep.txt']);
+  });
+
+it('別のリポジトリの UPSTREAM.md があるフォルダには書かずに止める', () => {
+    const dest = join(work, 'forge-copy');
+    mkdirSync(dest);
+    writeFileSync(join(dest, 'UPSTREAM.md'), 'コピー元：https://github.com/example/other\n');
+    writeFileSync(join(dest, 'keep.txt'), 'x');
+    expect(() => exportRuntime(dest, INFO)).toThrow(/UPSTREAM\.md/);
+    expect(readdirSync(dest).sort()).toEqual(['UPSTREAM.md', 'keep.txt']);
+  });
+
+  it('UPSTREAM.md のない既存のフォルダで止めるときは、途中で失敗した跡かもしれないと伝える', () => {
+    const dest = join(work, 'half');
+    mkdirSync(join(dest, 'packages'), { recursive: true });
+    expect(() => exportRuntime(dest, INFO)).toThrow(/途中で失敗した跡/);
+  });
+
+  it('コピー先がこのリポジトリの中なら、何も作らずに止める', () => {
+    const dest = join(REPO_ROOT, 'tmp-export-test-should-not-exist');
+    expect(() => exportRuntime(dest, INFO)).toThrow(/リポジトリ/);
+    expect(existsSync(dest)).toBe(false);
+  });
+
+  it('コピー先がこのリポジトリを含むフォルダなら、何も消さずに止める', () => {
+    expect(() => exportRuntime(dirname(REPO_ROOT), INFO)).toThrow(/リポジトリ/);
+    expect(existsSync(join(REPO_ROOT, 'package.json'))).toBe(true);
+    expect(() => exportRuntime(REPO_ROOT, INFO)).toThrow(/リポジトリ/);
+    expect(existsSync(join(REPO_ROOT, 'package.json'))).toBe(true);
   });
 
   it('コピー先がファイルなら止める', () => {
