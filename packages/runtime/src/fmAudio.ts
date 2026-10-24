@@ -127,6 +127,8 @@ export class FmAudio {
   private speakerFilter = false;
   /** タブが裏に回ったとき、こちらから suspend したか */
   private suspendedByVisibility = false;
+  /** bgmFade を 0 へ下げた（1 でない）可能性があるか。次の playBgm で 1 へ戻す */
+  private fadeLowered = false;
   private bgm: BgmState | null = null;
   private readonly sePlayers = new Set<Player>();
   private timer: ReturnType<typeof setInterval> | null = null;
@@ -205,6 +207,15 @@ export class FmAudio {
       return;
     }
     this.bgm = { player: new Player(this.rt, song, this.playerOptions()), nextLoopPass: 1, fadeEnd: null };
+    if (this.fadeLowered) {
+      // 前の曲の尾が跳ね上がらないよう、新しい曲の頭の時刻に向けて今の値から 1 へ戻す
+      const now = this.ctx.currentTime;
+      const gain = this.bgmFade.gain;
+      gain.cancelScheduledValues(now);
+      gain.setValueAtTime(gain.value, now);
+      gain.linearRampToValueAtTime(1, now + START_MARGIN_SECONDS);
+      this.fadeLowered = false;
+    }
     this.ensureTimer();
   }
 
@@ -214,6 +225,9 @@ export class FmAudio {
    * フェード中にもう一度呼んだら、終わりが早いほうに合わせる
    */
   stopBgm(options: { fadeMs?: number } = {}): void {
+    if (typeof options !== 'object' || options === null) {
+      throw new RangeError('stopBgm: options は { fadeMs } の形にしてください');
+    }
     const fadeMs = options.fadeMs ?? 0;
     if (typeof fadeMs !== 'number' || !Number.isFinite(fadeMs) || fadeMs < 0) {
       throw new RangeError(`stopBgm: fadeMs は 0 以上の有限の数にしてください（fadeMs=${String(fadeMs)}）`);
@@ -233,6 +247,7 @@ export class FmAudio {
     gain.setValueAtTime(gain.value, now);
     gain.linearRampToValueAtTime(0, end);
     bgm.fadeEnd = end;
+    this.fadeLowered = true;
   }
 
   /** BGM を一時停止する（持続中のノートをキーオフし、曲の位置を止める）。フェード中なら、フェードを終えたものとしてすぐ止める */
@@ -386,25 +401,18 @@ export class FmAudio {
         this.emit('loop');
       }
     } else if (now >= end) {
-      this.resetFade(bgm);
       this.bgm = null;
       this.emit('end');
     }
   }
 
-  /** BGM をすぐ止めて捨てる。フェード中なら bgmFade の倍率も 1 に戻す */
+  /**
+   * BGM をすぐ止めて捨てる。bgmFade は戻さない（cancel はキーオフするだけでリリースの尾が残り、
+   * Worklet への届きも遅れるので、戻すと尾が全音量で鳴る）。1 へ戻すのは次の playBgm
+   */
   private dropBgm(bgm: BgmState): void {
     bgm.player.stop();
-    this.resetFade(bgm);
     this.bgm = null;
-  }
-
-  private resetFade(bgm: BgmState): void {
-    if (bgm.fadeEnd === null) return;
-    const now = this.ctx.currentTime;
-    this.bgmFade.gain.cancelScheduledValues(now);
-    this.bgmFade.gain.setValueAtTime(1, now);
-    bgm.fadeEnd = null;
   }
 
   private onVisibilityChange(visibility: VisibilityLike): void {

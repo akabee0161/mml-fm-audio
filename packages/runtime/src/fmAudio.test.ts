@@ -324,13 +324,18 @@ describe('FmAudio', () => {
     audio.stopBgm({ fadeMs: 1000 });
     expect(fn(bgmFade.gain.cancelScheduledValues).mock.calls).toEqual([[0.025]]);
     expect(fn(bgmFade.gain.setValueAtTime).mock.calls).toEqual([[1, 0.025]]);
-    expect(fn(bgmFade.gain.linearRampToValueAtTime).mock.calls).toEqual([[0, 1.025]]);
+    const ramp = fn(bgmFade.gain.linearRampToValueAtTime).mock.calls;
+    expect(ramp).toHaveLength(1);
+    expect(ramp[0]![0]).toBe(0);
+    expect(ramp[0]![1]).toBeCloseTo(1.025, 6);
     tickAt(context, 0.9);
     expect(cancels).toHaveLength(0);
     expect(fn(bgmFade.gain.setValueAtTime)).toHaveBeenCalledTimes(1);
     tickAt(context, 1.1);
     expect(cancels).toHaveLength(1);
-    expect(fn(bgmFade.gain.setValueAtTime).mock.calls.at(-1)).toEqual([1, 1.1]);
+    // 止めても bgmFade は 0 へ向かったまま（リリースの尾が全音量で鳴らないよう、1 を予約しない）
+    expect(fn(bgmFade.gain.setValueAtTime)).toHaveBeenCalledTimes(1);
+    expect(fn(bgmFade.gain.linearRampToValueAtTime)).toHaveBeenCalledTimes(1);
     expect(vi.getTimerCount()).toBe(0);
   });
 
@@ -356,7 +361,11 @@ describe('FmAudio', () => {
     audio.playBgm(audio.load('A @2 L d4'));
     expect(cancels).toHaveLength(1);
     expect(fn(bgmFade.gain.cancelScheduledValues).mock.calls.at(-1)).toEqual([0.5]);
+    // 新しい曲の頭（0.5 + 0.05 秒）に向けて今の値から 1 へ戻す
     expect(fn(bgmFade.gain.setValueAtTime).mock.calls.at(-1)).toEqual([1, 0.5]);
+    const back = fn(bgmFade.gain.linearRampToValueAtTime).mock.calls.at(-1)!;
+    expect(back[0]).toBe(1);
+    expect(back[1]).toBeCloseTo(0.55, 6);
     const before = noteOns.length;
     tickAt(context, 3); // 古いフェードの終わり（2.025 秒）を過ぎても新しい曲は止まらない
     expect(cancels).toHaveLength(1);
@@ -373,7 +382,7 @@ describe('FmAudio', () => {
     tickAt(context, 0.3);
     audio.pauseBgm();
     expect(cancels).toHaveLength(1);
-    expect(fn(bgmFade.gain.setValueAtTime).mock.calls.at(-1)).toEqual([1, 0.3]);
+    expect(fn(bgmFade.gain.linearRampToValueAtTime)).toHaveBeenCalledTimes(1); // 1 へ戻さない
     vi.advanceTimersByTime(25);
     expect(vi.getTimerCount()).toBe(0);
     const before = noteOns.length;
@@ -391,7 +400,7 @@ describe('FmAudio', () => {
     tickAt(context, 0.3);
     audio.stopBgm();
     expect(cancels).toHaveLength(1);
-    expect(fn(bgmFade.gain.setValueAtTime).mock.calls.at(-1)).toEqual([1, 0.3]);
+    expect(fn(bgmFade.gain.linearRampToValueAtTime)).toHaveBeenCalledTimes(1); // 1 へ戻さない
     vi.advanceTimersByTime(25);
     expect(vi.getTimerCount()).toBe(0);
   });
@@ -530,6 +539,58 @@ describe('FmAudio', () => {
     expect(context.resume).toHaveBeenCalledTimes(1);
     changeVisibility(false);
     expect(context.resume).toHaveBeenCalledTimes(1);
+  });
+
+  it('フェードを終えた後も bgmFade は 0 のまま（1 を予約しない）。次の playBgm で新しい曲の頭の時刻に 1 へ戻し、ノートも送る', () => {
+    const { audio, context, gains, noteOns } = setup();
+    const bgmFade = gains[0]!;
+    audio.playBgm(audio.load('A L c1 d1'));
+    tickAt(context, 0.025);
+    audio.stopBgm({ fadeMs: 1000 });
+    tickAt(context, 1.1); // フェードが終わって止まる
+    expect(fn(bgmFade.gain.setValueAtTime)).toHaveBeenCalledTimes(1);
+    expect(fn(bgmFade.gain.linearRampToValueAtTime)).toHaveBeenCalledTimes(1);
+    const before = noteOns.length;
+    audio.playBgm(audio.load('A L c4'));
+    const back = fn(bgmFade.gain.linearRampToValueAtTime).mock.calls.at(-1)!;
+    expect(back[0]).toBe(1);
+    expect(back[1]).toBeCloseTo(1.15, 6);
+    expect(fn(bgmFade.gain.cancelScheduledValues).mock.calls.at(-1)).toEqual([1.1]);
+    tickAt(context, 1.12);
+    expect(noteOns.length).toBeGreaterThan(before);
+    // 差し替えのたびに戻す予約を増やさない
+    const ramps = fn(bgmFade.gain.linearRampToValueAtTime).mock.calls.length;
+    audio.playBgm(audio.load('A L d4'));
+    expect(fn(bgmFade.gain.linearRampToValueAtTime)).toHaveBeenCalledTimes(ramps);
+  });
+
+  it('stopBgm({ fadeMs: 0 }) はフェードせずすぐ止まる', () => {
+    const { audio, context, gains, cancels } = setup();
+    audio.playBgm(audio.load('A L c1 d1'));
+    tickAt(context, 0.025);
+    audio.stopBgm({ fadeMs: 0 });
+    expect(cancels).toHaveLength(1);
+    expect(fn(gains[0]!.gain.linearRampToValueAtTime)).not.toHaveBeenCalled();
+  });
+
+  it('一時停止中に fadeMs つきで stopBgm するとフェードせずすぐ止まる', () => {
+    const { audio, context, gains, noteOns } = setup();
+    audio.playBgm(audio.load('A L c4 d4'));
+    tickAt(context, 0.025);
+    tickAt(context, 0.5);
+    audio.pauseBgm();
+    audio.stopBgm({ fadeMs: 1000 });
+    expect(fn(gains[0]!.gain.linearRampToValueAtTime)).not.toHaveBeenCalled();
+    const before = noteOns.length;
+    audio.resumeBgm();
+    tickAt(context, 3);
+    expect(noteOns).toHaveLength(before);
+  });
+
+  it('stopBgm に object でない options を渡すと RangeError', () => {
+    const { audio } = setup();
+    expect(() => audio.stopBgm(null as never)).toThrow(RangeError);
+    expect(() => audio.stopBgm(5 as never)).toThrow(RangeError);
   });
 
   it('裏に回る前から止まっていたら、表に戻っても resume しない', () => {
