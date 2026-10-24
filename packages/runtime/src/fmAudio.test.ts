@@ -184,35 +184,51 @@ describe('FmAudio', () => {
     expect(audio.load('A c4&d4').errors[0]).toMatchObject({ line: 1, column: 6 });
   });
 
+  /** currentTime を直接セットしてタイマーを 1 回だけ進める（境界を避けた確認用） */
+  const tickAt = (c: { currentTime: number }, seconds: number) => {
+    c.currentTime = seconds;
+    vi.advanceTimersByTime(25);
+  };
+
   it('loop は L の位置が鳴る時刻に呼ぶ。先読みで送った時点では呼ばない', () => {
-    const { audio, run } = setup();
+    const { audio, context } = setup();
     const loops = vi.fn();
     audio.on('loop', loops);
-    audio.playBgm(audio.load('A L c4 d4')); // 1 周 1 秒、曲の頭は 0.05 秒
-    run(0.95); // 先読みで 2 周目のノートは送られているが、時刻は 0.975
+    audio.playBgm(audio.load('A L c4 d4')); // 1 周 1 秒、曲の頭は 0.05 秒なので 2 周目の頭は 1.05 秒
+    tickAt(context, 1.025); // 先読み（〜1.125 秒）は 2 周目の頭を越えているが、まだ鳴る時刻ではない
     expect(loops).not.toHaveBeenCalled();
-    run(0.1); // 1.05 秒を過ぎる
+    tickAt(context, 1.06);
     expect(loops).toHaveBeenCalledTimes(1);
-    run(1.1);
+    tickAt(context, 1.07);
+    expect(loops).toHaveBeenCalledTimes(1);
+  });
+
+  it('複数周を 1 回のタイマーで越えたら、越えた分だけ loop を呼ぶ', () => {
+    const { audio, context } = setup();
+    const loops = vi.fn();
+    audio.on('loop', loops);
+    audio.playBgm(audio.load('A L c4 d4')); // 周の頭は 1.05、2.05、3.05 秒
+    tickAt(context, 2.6);
     expect(loops).toHaveBeenCalledTimes(2);
   });
 
   it('end は L のない BGM の曲の終わりが鳴る時刻に 1 回だけ呼び、stopBgm では呼ばない', () => {
-    const { audio, run } = setup();
+    const { audio, context } = setup();
     const ends = vi.fn();
     audio.on('end', ends);
-    audio.playBgm(audio.load('A c4 d4'));
-    run(0.95);
+    audio.playBgm(audio.load('A c4 d4')); // 曲の終わりは 1.05 秒
+    tickAt(context, 1.025); // 先読みは終わりを越えているが、まだ鳴る時刻ではない
     expect(ends).not.toHaveBeenCalled();
-    run(0.2);
+    tickAt(context, 1.06);
     expect(ends).toHaveBeenCalledTimes(1);
-    run(1);
+    tickAt(context, 2);
     expect(ends).toHaveBeenCalledTimes(1);
 
+    context.currentTime = 3;
     audio.playBgm(audio.load('A c4 d4'));
-    run(0.1);
+    tickAt(context, 3.1);
     audio.stopBgm();
-    run(2);
+    tickAt(context, 6);
     expect(ends).toHaveBeenCalledTimes(1);
   });
 
