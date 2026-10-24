@@ -79,10 +79,23 @@ export interface FmAudioOptions {
 
 type EventType = 'loop' | 'end' | 'warning';
 
-/** 鳴らしている BGM。nextLoopPass は、まだ loop を呼んでいない最初の周（1 から） */
+/** 鳴らしている BGM。nextLoopPass は、まだ loop を呼んでいない最初の周（1 から）。fadeEnd はフェードが終わる currentTime（秒）で、フェード中でなければ null */
 interface BgmState {
   player: Player;
   nextLoopPass: number;
+  fadeEnd: number | null;
+}
+
+/** 音量を変えるときの時定数（秒）。プチッと鳴らない程度に短く */
+const VOLUME_TIME_CONSTANT = 0.005;
+/** スピーカー風フィルターの周波数（Hz、暫定） */
+const SPEAKER_HIGHPASS_HZ = 300;
+const SPEAKER_LOWPASS_HZ = 7000;
+
+function requireVolume(name: string, value: unknown): asserts value is number {
+  if (typeof value !== 'number' || !Number.isFinite(value) || value < 0 || value > 1) {
+    throw new RangeError(`setVolume: ${name} は 0〜1 の数にしてください（${name}=${String(value)}）`);
+  }
 }
 
 function isSong(value: unknown): value is Song {
@@ -102,16 +115,18 @@ function requireSong(name: string, song: unknown): asserts song is Song {
 export class FmAudio {
   readonly context: BaseAudioContext;
   readonly engine: FmEngine;
-  /** destination の直前のノード。分析器をつなぐ用 */
-  readonly output: AudioNode;
-
-  // 音量・フェード・フィルターは Task 6 でこの 4 つのノードに足す
   // 経路：engine 出力 0 → bgmFade → bgmGain → master、出力 1 → seGain → master、master → destination
+  // スピーカー風フィルターがオンのときは master → ハイパス → ローパス → destination
+  // bgmFade は stopBgm のフェード専用の倍率、bgmGain・seGain・master は setVolume の音量
   private readonly bgmFade: GainNodeLike;
   private readonly bgmGain: GainNodeLike;
   private readonly seGain: GainNodeLike;
   private readonly master: GainNodeLike;
 
+  private filters: { highpass: BiquadFilterNodeLike; lowpass: BiquadFilterNodeLike } | null = null;
+  private speakerFilter = false;
+  /** タブが裏に回ったとき、こちらから suspend したか */
+  private suspendedByVisibility = false;
   private bgm: BgmState | null = null;
   private readonly sePlayers = new Set<Player>();
   private timer: ReturnType<typeof setInterval> | null = null;
@@ -124,7 +139,7 @@ export class FmAudio {
   private constructor(
     private readonly ctx: AudioContextLike,
     private readonly rt: RuntimeEngine,
-    _document?: VisibilityLike,
+    visibility?: VisibilityLike,
   ) {
     this.context = ctx as unknown as BaseAudioContext;
     this.engine = rt as unknown as FmEngine;
@@ -139,9 +154,15 @@ export class FmAudio {
     rt.node.connect(this.seGain, 1);
     this.seGain.connect(this.master);
     this.master.connect(ctx.destination);
-    this.output = this.master as unknown as AudioNode;
 
     rt.onWarning((message) => this.emit('warning', message));
+    visibility?.addEventListener('visibilitychange', () => this.onVisibilityChange(visibility));
+  }
+
+  /** destination の直前のノード。分析器をつなぐ用。スピーカー風フィルターのオン・オフで変わる */
+  get output(): AudioNode {
+    const last = this.speakerFilter && this.filters ? this.filters.lowpass : this.master;
+    return last as unknown as AudioNode;
   }
 
   /** テスト用。偽の AudioContext・音源でつなぐ。通常は init を使う */
@@ -183,15 +204,101 @@ export class FmAudio {
       this.emit('warning', FmAudio.errorMessage(song));
       return;
     }
-    this.bgm = { player: new Player(this.rt, song, this.playerOptions()), nextLoopPass: 1 };
+    this.bgm = { player: new Player(this.rt, song, this.playerOptions()), nextLoopPass: 1, fadeEnd: null };
     this.ensureTimer();
   }
 
-  /** BGM をすぐ止める（送り済みの予約を捨て、持続中のノートをキーオフする）。loop・end は呼ばない */
-  stopBgm(_options: { fadeMs?: number } = {}): void {
-    if (!this.bgm) return;
-    this.bgm.player.stop();
-    this.bgm = null;
+  /**
+   * BGM を止める（送り済みの予約を捨て、持続中のノートをキーオフする）。loop・end は呼ばない。
+   * fadeMs が 0 より大きければ、その間に音量を 0 まで下げてから止める（フェード中も曲は進む）。省くか 0 ならすぐ止める。
+   * フェード中にもう一度呼んだら、終わりが早いほうに合わせる
+   */
+  stopBgm(options: { fadeMs?: number } = {}): void {
+    const fadeMs = options.fadeMs ?? 0;
+    if (typeof fadeMs !== 'number' || !Number.isFinite(fadeMs) || fadeMs < 0) {
+      throw new RangeError(`stopBgm: fadeMs は 0 以上の有限の数にしてください（fadeMs=${String(fadeMs)}）`);
+    }
+    const bgm = this.bgm;
+    if (!bgm) return;
+    // 一時停止中は鳴っていないので、フェードせずに止める
+    if (fadeMs === 0 || bgm.player.paused) {
+      this.dropBgm(bgm);
+      return;
+    }
+    const now = this.ctx.currentTime;
+    const end = now + fadeMs / 1000;
+    if (bgm.fadeEnd !== null && end >= bgm.fadeEnd) return;
+    const gain = this.bgmFade.gain;
+    gain.cancelScheduledValues(now);
+    gain.setValueAtTime(gain.value, now);
+    gain.linearRampToValueAtTime(0, end);
+    bgm.fadeEnd = end;
+  }
+
+  /** BGM を一時停止する（持続中のノートをキーオフし、曲の位置を止める）。フェード中なら、フェードを終えたものとしてすぐ止める */
+  pauseBgm(): void {
+    const bgm = this.bgm;
+    if (!bgm || bgm.player.paused) return;
+    if (bgm.fadeEnd !== null) {
+      this.dropBgm(bgm);
+      return;
+    }
+    bgm.player.pause(this.ctx.currentTime * this.ctx.sampleRate);
+  }
+
+  /** 一時停止した BGM を、止めた位置から続ける。一時停止中でなければ何もしない */
+  resumeBgm(): void {
+    const bgm = this.bgm;
+    if (!bgm || !bgm.player.paused) return;
+    bgm.player.resume(this.ctx.currentTime * this.ctx.sampleRate);
+    this.ensureTimer();
+  }
+
+  /** master・bgm・se の音量（0〜1）。渡したものだけ変える。持続中のノートにもすぐ効く */
+  setVolume(volume: { master?: number; bgm?: number; se?: number }): void {
+    if (typeof volume !== 'object' || volume === null) {
+      throw new RangeError('setVolume: volume は { master, bgm, se } の形にしてください');
+    }
+    const targets: Array<[string, number | undefined, GainNodeLike]> = [
+      ['master', volume.master, this.master],
+      ['bgm', volume.bgm, this.bgmGain],
+      ['se', volume.se, this.seGain],
+    ];
+    // 値を変える前に全部を検査する
+    for (const [name, value] of targets) if (value !== undefined) requireVolume(name, value);
+    const now = this.ctx.currentTime;
+    for (const [, value, node] of targets) {
+      if (value !== undefined) node.gain.setTargetAtTime(value, now, VOLUME_TIME_CONSTANT);
+    }
+  }
+
+  /** 出力の最後にハイパス（300 Hz）とローパス（7000 Hz）を入れて、小さなスピーカー風にする。既定はオフ */
+  setSpeakerFilter(enabled: boolean): void {
+    if (typeof enabled !== 'boolean') {
+      throw new RangeError(`setSpeakerFilter: enabled は true か false にしてください（enabled=${String(enabled)}）`);
+    }
+    if (enabled === this.speakerFilter) return;
+    this.master.disconnect();
+    if (enabled) {
+      if (!this.filters) {
+        const highpass = this.ctx.createBiquadFilter();
+        highpass.type = 'highpass';
+        highpass.frequency.value = SPEAKER_HIGHPASS_HZ;
+        const lowpass = this.ctx.createBiquadFilter();
+        lowpass.type = 'lowpass';
+        lowpass.frequency.value = SPEAKER_LOWPASS_HZ;
+        this.filters = { highpass, lowpass };
+      }
+      const { highpass, lowpass } = this.filters;
+      this.master.connect(highpass);
+      highpass.connect(lowpass);
+      lowpass.connect(this.ctx.destination);
+    } else if (this.filters) {
+      this.filters.highpass.disconnect();
+      this.filters.lowpass.disconnect();
+      this.master.connect(this.ctx.destination);
+    }
+    this.speakerFilter = enabled;
   }
 
   /** 効果音を鳴らす。BGM とは別のボイスを使い、続けて呼ぶと重なる。L は無視して最後まで鳴らす */
@@ -251,7 +358,10 @@ export class FmAudio {
     const horizon = now + LOOKAHEAD_SECONDS * sampleRate;
 
     const bgm = this.bgm;
-    if (bgm) {
+    if (bgm && bgm.fadeEnd !== null && this.ctx.currentTime >= bgm.fadeEnd) {
+      this.dropBgm(bgm);
+    } else if (bgm && !bgm.player.paused) {
+      // 一時停止中は何も送らず、loop・end も呼ばない
       bgm.player.pump(now, horizon);
       this.fireBgmEvents(bgm, now);
     }
@@ -260,7 +370,8 @@ export class FmAudio {
       if (player.finished) this.sePlayers.delete(player);
     }
 
-    if (this.bgm === null && this.sePlayers.size === 0 && this.timer !== null) {
+    const bgmIdle = this.bgm === null || this.bgm.player.paused;
+    if (bgmIdle && this.sePlayers.size === 0 && this.timer !== null) {
       clearInterval(this.timer);
       this.timer = null;
     }
@@ -275,8 +386,35 @@ export class FmAudio {
         this.emit('loop');
       }
     } else if (now >= end) {
+      this.resetFade(bgm);
       this.bgm = null;
       this.emit('end');
+    }
+  }
+
+  /** BGM をすぐ止めて捨てる。フェード中なら bgmFade の倍率も 1 に戻す */
+  private dropBgm(bgm: BgmState): void {
+    bgm.player.stop();
+    this.resetFade(bgm);
+    this.bgm = null;
+  }
+
+  private resetFade(bgm: BgmState): void {
+    if (bgm.fadeEnd === null) return;
+    const now = this.ctx.currentTime;
+    this.bgmFade.gain.cancelScheduledValues(now);
+    this.bgmFade.gain.setValueAtTime(1, now);
+    bgm.fadeEnd = null;
+  }
+
+  private onVisibilityChange(visibility: VisibilityLike): void {
+    if (visibility.hidden) {
+      if (this.ctx.state !== 'running') return;
+      this.suspendedByVisibility = true;
+      this.ctx.suspend().catch((e: unknown) => this.emit('warning', `AudioContext を止められませんでした：${String(e)}`));
+    } else if (this.suspendedByVisibility) {
+      this.suspendedByVisibility = false;
+      this.ctx.resume().catch((e: unknown) => this.emit('warning', `AudioContext を再開できませんでした：${String(e)}`));
     }
   }
 }

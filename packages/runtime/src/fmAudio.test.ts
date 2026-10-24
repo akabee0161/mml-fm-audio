@@ -6,6 +6,8 @@ const SR = 48000;
 function fakeContext() {
   const gains: GainNodeLike[] = [];
   const connections: Array<{ from: unknown; to: unknown; output?: number }> = [];
+  const disconnected: unknown[] = [];
+  const filters: BiquadFilterNodeLike[] = [];
   const param = () => ({
     value: 1,
     setValueAtTime: vi.fn(),
@@ -22,16 +24,17 @@ function fakeContext() {
     resume: vi.fn(async () => {}),
     suspend: vi.fn(async () => {}),
     createGain() {
-      const node: GainNodeLike = { gain: param(), connect: (to, output) => void connections.push({ from: node, to, output }), disconnect() {} };
+      const node: GainNodeLike = { gain: param(), connect: (to, output) => void connections.push({ from: node, to, output }), disconnect: () => void disconnected.push(node) };
       gains.push(node);
       return node;
     },
     createBiquadFilter() {
-      const node: BiquadFilterNodeLike = { type: "lowpass", frequency: param(), Q: param(), connect: (to, output) => void connections.push({ from: node, to, output }), disconnect() {} };
+      const node: BiquadFilterNodeLike = { type: "lowpass", frequency: param(), Q: param(), connect: (to, output) => void connections.push({ from: node, to, output }), disconnect: () => void disconnected.push(node) };
+      filters.push(node);
       return node;
     },
   } satisfies AudioContextLike;
-  return { context, gains, connections, destination };
+  return { context, gains, connections, destination, disconnected, filters };
 }
 
 type NoteOn = { id: number; program: number; note: number; time: number; group: string };
@@ -63,10 +66,28 @@ function fakeEngine() {
   return { engine, noteOns, cancels, node, warn: (m: string) => warn(m) };
 }
 
+function fakeDocument() {
+  let listener: () => void = () => {};
+  const doc = {
+    hidden: false,
+    addEventListener: (_type: 'visibilitychange', l: () => void) => {
+      listener = l;
+    },
+  };
+  return {
+    doc,
+    change: (hidden: boolean) => {
+      doc.hidden = hidden;
+      listener();
+    },
+  };
+}
+
 function setup() {
   const c = fakeContext();
   const e = fakeEngine();
-  const audio = FmAudio.create({ context: c.context, engine: e.engine });
+  const d = fakeDocument();
+  const audio = FmAudio.create({ context: c.context, engine: e.engine, document: d.doc });
   /** 25 ms ずつ、時計とタイマーを進める */
   const run = (seconds: number) => {
     for (let i = 0; i < Math.round(seconds / 0.025); i++) {
@@ -74,7 +95,7 @@ function setup() {
       vi.advanceTimersByTime(25);
     }
   };
-  return { audio, run, ...c, ...e };
+  return { audio, run, changeVisibility: d.change, ...c, ...e };
 }
 
 beforeEach(() => vi.useFakeTimers());
@@ -272,5 +293,250 @@ describe('FmAudio', () => {
     expect(() => audio.playBgm('A c4' as never)).toThrow(RangeError);
     expect(() => audio.playSe({} as never)).toThrow(RangeError);
     expect(() => audio.playBgm(null as never)).toThrow(RangeError);
+  });
+
+  const fn = (f: unknown) => f as ReturnType<typeof vi.fn>;
+  const targetCalls = (g: GainNodeLike) => fn(g.gain.setTargetAtTime).mock.calls;
+
+  it('setVolume は渡した値だけ setTargetAtTime で変え、範囲外なら何も変えずに RangeError', () => {
+    const { audio, gains, context } = setup();
+    const [, bgmGain, seGain, master] = gains as [GainNodeLike, GainNodeLike, GainNodeLike, GainNodeLike];
+    context.currentTime = 2;
+    audio.setVolume({ bgm: 0.5 });
+    expect(targetCalls(bgmGain)).toEqual([[0.5, 2, 0.005]]);
+    expect(targetCalls(seGain)).toHaveLength(0);
+    expect(targetCalls(master)).toHaveLength(0);
+    audio.setVolume({ master: 0, se: 1 });
+    expect(targetCalls(master)).toEqual([[0, 2, 0.005]]);
+    expect(targetCalls(seGain)).toEqual([[1, 2, 0.005]]);
+    for (const bad of [1.5, -0.1, Number.NaN, Infinity, '0.5']) {
+      expect(() => audio.setVolume({ master: 0.5, se: bad as number })).toThrow(RangeError);
+    }
+    expect(targetCalls(master)).toHaveLength(1);
+    expect(targetCalls(seGain)).toHaveLength(1);
+  });
+
+  it('stopBgm({ fadeMs: 1000 }) は 1 秒かけて bgmFade を 0 へ下げ、終わったタイマーで Player を止めて bgmFade を 1 に戻す', () => {
+    const { audio, context, gains, cancels, run } = setup();
+    const bgmFade = gains[0]!;
+    audio.playBgm(audio.load('A L c1 d1'));
+    run(0.025);
+    audio.stopBgm({ fadeMs: 1000 });
+    expect(fn(bgmFade.gain.cancelScheduledValues).mock.calls).toEqual([[0.025]]);
+    expect(fn(bgmFade.gain.setValueAtTime).mock.calls).toEqual([[1, 0.025]]);
+    expect(fn(bgmFade.gain.linearRampToValueAtTime).mock.calls).toEqual([[0, 1.025]]);
+    tickAt(context, 0.9);
+    expect(cancels).toHaveLength(0);
+    expect(fn(bgmFade.gain.setValueAtTime)).toHaveBeenCalledTimes(1);
+    tickAt(context, 1.1);
+    expect(cancels).toHaveLength(1);
+    expect(fn(bgmFade.gain.setValueAtTime).mock.calls.at(-1)).toEqual([1, 1.1]);
+    expect(vi.getTimerCount()).toBe(0);
+  });
+
+  it('フェード中も BGM のノートを送り続ける', () => {
+    const { audio, context, noteOns } = setup();
+    audio.playBgm(audio.load('A L c4 d4')); // ノートは 0.05、0.55、1.05 秒…
+    tickAt(context, 0.025);
+    audio.stopBgm({ fadeMs: 2000 });
+    const before = noteOns.length;
+    tickAt(context, 0.5); // 先読み（〜0.6 秒）に 2 つ目のノートが入る
+    expect(noteOns.length).toBe(before + 1);
+    tickAt(context, 1.0);
+    expect(noteOns.length).toBe(before + 2);
+  });
+
+  it('フェード中に playBgm すると新しい曲はフェードの倍率 1 で鳴る（前の曲は cancel される）', () => {
+    const { audio, context, gains, cancels, noteOns } = setup();
+    const bgmFade = gains[0]!;
+    audio.playBgm(audio.load('A @1 L c4'));
+    tickAt(context, 0.025);
+    audio.stopBgm({ fadeMs: 2000 });
+    tickAt(context, 0.5);
+    audio.playBgm(audio.load('A @2 L d4'));
+    expect(cancels).toHaveLength(1);
+    expect(fn(bgmFade.gain.cancelScheduledValues).mock.calls.at(-1)).toEqual([0.5]);
+    expect(fn(bgmFade.gain.setValueAtTime).mock.calls.at(-1)).toEqual([1, 0.5]);
+    const before = noteOns.length;
+    tickAt(context, 3); // 古いフェードの終わり（2.025 秒）を過ぎても新しい曲は止まらない
+    expect(cancels).toHaveLength(1);
+    expect(noteOns.length).toBeGreaterThan(before);
+    expect(noteOns.slice(before).every((n) => n.program === 2)).toBe(true);
+  });
+
+  it('フェード中に pauseBgm するとすぐ止まり、resumeBgm しても鳴らない', () => {
+    const { audio, context, gains, cancels, noteOns } = setup();
+    const bgmFade = gains[0]!;
+    audio.playBgm(audio.load('A L c4 d4'));
+    tickAt(context, 0.025);
+    audio.stopBgm({ fadeMs: 2000 });
+    tickAt(context, 0.3);
+    audio.pauseBgm();
+    expect(cancels).toHaveLength(1);
+    expect(fn(bgmFade.gain.setValueAtTime).mock.calls.at(-1)).toEqual([1, 0.3]);
+    vi.advanceTimersByTime(25);
+    expect(vi.getTimerCount()).toBe(0);
+    const before = noteOns.length;
+    audio.resumeBgm();
+    tickAt(context, 3);
+    expect(noteOns).toHaveLength(before);
+  });
+
+  it('フェード中に fadeMs なしの stopBgm を呼ぶとすぐ止まる', () => {
+    const { audio, context, gains, cancels } = setup();
+    const bgmFade = gains[0]!;
+    audio.playBgm(audio.load('A L c4 d4'));
+    tickAt(context, 0.025);
+    audio.stopBgm({ fadeMs: 2000 });
+    tickAt(context, 0.3);
+    audio.stopBgm();
+    expect(cancels).toHaveLength(1);
+    expect(fn(bgmFade.gain.setValueAtTime).mock.calls.at(-1)).toEqual([1, 0.3]);
+    vi.advanceTimersByTime(25);
+    expect(vi.getTimerCount()).toBe(0);
+  });
+
+  it('フェード中にもう一度 fadeMs つきで呼ぶと、終わりが早いほうに合わせる', () => {
+    const { audio, context, gains, cancels } = setup();
+    const bgmFade = gains[0]!;
+    audio.playBgm(audio.load('A L c4 d4'));
+    tickAt(context, 0.025);
+    audio.stopBgm({ fadeMs: 2000 }); // 終わりは 2.025 秒
+    tickAt(context, 0.1);
+    audio.stopBgm({ fadeMs: 5000 }); // 遅くなるので無視
+    expect(fn(bgmFade.gain.linearRampToValueAtTime)).toHaveBeenCalledTimes(1);
+    audio.stopBgm({ fadeMs: 400 }); // 終わりは 0.5 秒
+    expect(fn(bgmFade.gain.linearRampToValueAtTime).mock.calls.at(-1)).toEqual([0, 0.5]);
+    expect(fn(bgmFade.gain.cancelScheduledValues).mock.calls.at(-1)).toEqual([0.1]);
+    tickAt(context, 0.4);
+    expect(cancels).toHaveLength(0);
+    tickAt(context, 0.6);
+    expect(cancels).toHaveLength(1);
+  });
+
+  it('stopBgm の fadeMs が負・有限でないときは RangeError で、何も変えない', () => {
+    const { audio, gains, cancels } = setup();
+    audio.playBgm(audio.load('A L c4'));
+    for (const bad of [-1, Number.NaN, Infinity, '100']) {
+      expect(() => audio.stopBgm({ fadeMs: bad as number })).toThrow(RangeError);
+    }
+    expect(cancels).toHaveLength(0);
+    expect(fn(gains[0]!.gain.linearRampToValueAtTime)).not.toHaveBeenCalled();
+    expect(vi.getTimerCount()).toBe(1);
+  });
+
+  it('pauseBgm・resumeBgm で Player の pause・resume を呼び、一時停止中は loop・end を呼ばない', () => {
+    const { audio, context, noteOns, cancels } = setup();
+    const loops = vi.fn();
+    audio.on('loop', loops);
+    audio.playBgm(audio.load('A L c4 d4')); // 周の頭は 1.05、2.05 秒
+    tickAt(context, 0.025);
+    tickAt(context, 0.5); // 2 つ目のノート（0.55 秒）まで送り済み
+    expect(noteOns).toHaveLength(2);
+    audio.pauseBgm();
+    expect(cancels).toHaveLength(1);
+    vi.advanceTimersByTime(25); // 次のタイマーで止まる
+    expect(vi.getTimerCount()).toBe(0);
+    context.currentTime = 5; // 長く止める
+    vi.advanceTimersByTime(100);
+    expect(loops).not.toHaveBeenCalled();
+    expect(noteOns).toHaveLength(2);
+    audio.resumeBgm(); // 5 秒の時点で続きから。2 周目の頭は 5 + (1.05 - 0.5) = 5.55 秒
+    expect(vi.getTimerCount()).toBe(1);
+    tickAt(context, 5.0);
+    expect(noteOns).toHaveLength(3); // 止める前に送り済みだった 2 つ目のノートを送り直す
+    tickAt(context, 5.3);
+    expect(loops).not.toHaveBeenCalled();
+    tickAt(context, 5.7);
+    expect(loops).toHaveBeenCalledTimes(1);
+  });
+
+  it('一時停止中の L なし BGM は end を呼ばず、再開後に曲の終わりで呼ぶ', () => {
+    const { audio, context } = setup();
+    const ends = vi.fn();
+    audio.on('end', ends);
+    audio.playBgm(audio.load('A c4 d4')); // 終わりは 1.05 秒
+    tickAt(context, 0.5);
+    audio.pauseBgm();
+    tickAt(context, 3);
+    expect(ends).not.toHaveBeenCalled();
+    audio.resumeBgm(); // 終わりは 3 + 0.55 = 3.55 秒
+    tickAt(context, 3.3);
+    expect(ends).not.toHaveBeenCalled();
+    tickAt(context, 3.7);
+    expect(ends).toHaveBeenCalledTimes(1);
+  });
+
+  it('BGM がないときの pauseBgm・resumeBgm・stopBgm は何もしない（例外にならない）', () => {
+    const { audio, cancels } = setup();
+    expect(() => {
+      audio.pauseBgm();
+      audio.resumeBgm();
+      audio.stopBgm();
+      audio.stopBgm({ fadeMs: 500 });
+    }).not.toThrow();
+    expect(cancels).toHaveLength(0);
+    expect(vi.getTimerCount()).toBe(0);
+  });
+
+  it('pauseBgm を重ねても、resumeBgm を重ねても何も起きない', () => {
+    const { audio, context, cancels } = setup();
+    audio.playBgm(audio.load('A L c4 d4'));
+    tickAt(context, 0.025);
+    tickAt(context, 0.5);
+    audio.resumeBgm(); // 一時停止中でなければ何もしない
+    audio.pauseBgm();
+    audio.pauseBgm();
+    expect(cancels).toHaveLength(1);
+    audio.resumeBgm();
+    audio.resumeBgm();
+    expect(vi.getTimerCount()).toBe(1);
+  });
+
+  it('setSpeakerFilter(true) で master → 300 Hz ハイパス → 7000 Hz ローパス → destination、false で戻す', () => {
+    const { audio, gains, connections, destination, disconnected, filters } = setup();
+    const master = gains[3]!;
+    expect(audio.output).toBe(master);
+    connections.length = 0;
+    audio.setSpeakerFilter(true);
+    const [hp, lp] = filters as [BiquadFilterNodeLike, BiquadFilterNodeLike];
+    expect(hp.type).toBe('highpass');
+    expect(hp.frequency.value).toBe(300);
+    expect(lp.type).toBe('lowpass');
+    expect(lp.frequency.value).toBe(7000);
+    expect(disconnected).toContain(master);
+    expect(connections).toEqual([
+      { from: master, to: hp, output: undefined },
+      { from: hp, to: lp, output: undefined },
+      { from: lp, to: destination, output: undefined },
+    ]);
+    expect(audio.output).toBe(lp);
+    connections.length = 0;
+    disconnected.length = 0;
+    audio.setSpeakerFilter(false);
+    expect(disconnected).toEqual(expect.arrayContaining([master, hp, lp]));
+    expect(connections).toEqual([{ from: master, to: destination, output: undefined }]);
+    expect(audio.output).toBe(master);
+    expect(() => audio.setSpeakerFilter(1 as never)).toThrow(RangeError);
+  });
+
+  it('タブが裏に回ると suspend し、表に戻ると resume する', () => {
+    const { context, changeVisibility } = setup();
+    (context as { state: string }).state = 'running';
+    changeVisibility(true);
+    expect(context.suspend).toHaveBeenCalledTimes(1);
+    (context as { state: string }).state = 'suspended';
+    changeVisibility(false);
+    expect(context.resume).toHaveBeenCalledTimes(1);
+    changeVisibility(false);
+    expect(context.resume).toHaveBeenCalledTimes(1);
+  });
+
+  it('裏に回る前から止まっていたら、表に戻っても resume しない', () => {
+    const { context, changeVisibility } = setup();
+    changeVisibility(true); // state は suspended のまま
+    expect(context.suspend).not.toHaveBeenCalled();
+    changeVisibility(false);
+    expect(context.resume).not.toHaveBeenCalled();
   });
 });
