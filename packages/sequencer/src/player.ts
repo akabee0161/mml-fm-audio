@@ -30,6 +30,8 @@ interface NoteState {
   id: number | null;
   /** ノートオンを遅れで捨てた */
   dropped: boolean;
+  /** ノートオンの時刻（曲の時刻） */
+  onFrame: number;
   offFrame: number;
 }
 
@@ -133,10 +135,18 @@ export class Player {
   /** 作ったが送っていないアクション。時刻順に取り出す */
   private readonly queue = new ActionHeap();
   private readonly cursors: TrackCursor[];
+  /** 音源へ送ったノート（ノートオフが過ぎていないもの） */
   private sent: NoteState[] = [];
+  /** 音源へ送ったアクションのうち、時刻が現在以降のもの（先読みの範囲の分）。pause でヒープへ戻す */
+  private inflight: Action[] = [];
   private seq = 0;
+  /** 直近の pump の nowFrame（曲の時刻） */
   private lastNowFrame = 0;
   private stopped = false;
+  /** 一時停止で止めていた合計のフレーム数。アクションの時刻は曲の時刻のまま持ち、音源へ送るときに足す */
+  private shift = 0;
+  /** 一時停止中なら、pause に渡された nowFrame（そのままの値） */
+  private pausedAt: number | null = null;
 
   constructor(engine: EngineLike, song: Song, options: PlayerOptions) {
     if (song.errors.length > 0) {
@@ -160,13 +170,18 @@ export class Player {
 
   /** 時刻が horizonFrame より前のイベントを送る。nowFrame より前のノートオンは送らずに捨てる */
   pump(nowFrame: number, horizonFrame: number): void {
-    if (this.stopped) return;
+    if (this.stopped || this.pausedAt !== null) return;
+    nowFrame -= this.shift;
+    horizonFrame -= this.shift;
     this.lastNowFrame = nowFrame;
     this.song.tracks.forEach((_, t) => this.generate(t, horizonFrame));
     for (let a = this.queue.peek(); a !== undefined && a.frame < horizonFrame; a = this.queue.peek()) {
       this.queue.pop();
       this.send(a, nowFrame);
     }
+    let keptActions = 0;
+    for (const a of this.inflight) if (a.frame >= nowFrame) this.inflight[keptActions++] = a;
+    this.inflight.length = keptActions;
     // ノートオフが過ぎたノートは stop() でも cancel しない（offFrame >= lastNowFrame だけが対象）ので捨てる。
     // nowFrame は pump ごとに減らない（時刻が戻らない）前提
     let kept = 0;
@@ -174,16 +189,63 @@ export class Player {
     this.sent.length = kept;
   }
 
-  /** 送ったノートのうち、ノートオフの時刻が過ぎていないものを cancel し、以後は何も送らない */
+  /**
+   * 送ったノートのうち、ノートオフの時刻が過ぎていないものを cancel し、以後は何も送らない。
+   * 一時停止中は pause がすでに cancel しているので、重ねて cancel しない
+   */
   stop(): void {
     if (this.stopped) return;
     this.stopped = true;
-    const ids = this.sent
-      .filter((n) => n.id !== null && n.offFrame >= this.lastNowFrame)
-      .map((n) => n.id as number);
+    const ids = this.cancelableIds();
     this.queue.clear();
     this.sent = [];
+    this.inflight = [];
     if (ids.length > 0) this.engine.cancel(ids);
+  }
+
+  get paused(): boolean {
+    return this.pausedAt !== null;
+  }
+
+  /**
+   * nowFrame の時点で止める。持続中のノート（ノートオンが nowFrame より前）はキーオフして再開後も鳴らし直さず、
+   * 先読みで送り済みのノート（ノートオンが nowFrame 以降）は cancel して再開後に送り直す。
+   * 一時停止中・停止後は何もしない
+   */
+  pause(nowFrame: number): void {
+    if (this.stopped || this.pausedAt !== null) return;
+    this.pausedAt = nowFrame;
+    const songNow = nowFrame - this.shift;
+    this.lastNowFrame = songNow;
+    const ids = this.cancelableIds();
+    for (const n of this.sent) {
+      if (n.onFrame < songNow) n.dropped = true;
+      else n.id = null;
+    }
+    this.sent = [];
+    for (const a of this.inflight) if (a.frame >= songNow) this.queue.push(a);
+    this.inflight = [];
+    if (ids.length > 0) this.engine.cancel(ids);
+  }
+
+  /** 一時停止した位置から続ける。以後のすべての時刻を、止めていた分だけ後ろへずらす。一時停止していなければ何もしない */
+  resume(nowFrame: number): void {
+    if (this.pausedAt === null) return;
+    this.shift += nowFrame - this.pausedAt;
+    this.pausedAt = null;
+  }
+
+  /** pass 回目（1 以上）の周の頭（L の位置）が鳴る時刻。一時停止のずれを含む */
+  loopFrame(pass: number): number {
+    if (this.loopStart === null) throw new RangeError('ループしない曲に loopFrame は使えません');
+    if (!Number.isInteger(pass) || pass < 1) throw new RangeError(`pass は 1 以上の整数です（${pass}）`);
+    return this.passStartFrame(pass) + this.shift;
+  }
+
+  /** ループしない曲の終わり（song.length）が鳴る時刻。ループする曲では null */
+  get endFrame(): number | null {
+    if (this.loopStart !== null) return null;
+    return this.frame(0, this.song.length) + this.shift;
   }
 
   /** ループしない曲で、最後のノートオフまで送り終えたら true */
@@ -194,6 +256,12 @@ export class Player {
   /** テスト用。作ったがまだ送っていないアクションの数 */
   get pendingCount(): number {
     return this.queue.size;
+  }
+
+  private cancelableIds(): number[] {
+    return this.sent
+      .filter((n) => n.id !== null && n.offFrame >= this.lastNowFrame)
+      .map((n) => n.id as number);
   }
 
   private frame(pass: number, tick: number): number {
@@ -229,7 +297,7 @@ export class Player {
       if (frame >= horizonFrame) return;
       cursor.index++;
       if (ev.type === 'note') {
-        const note: NoteState = { id: null, dropped: false, offFrame: this.frame(cursor.pass, ev.tick + ev.gate) };
+        const note: NoteState = { id: null, dropped: false, onFrame: frame, offFrame: this.frame(cursor.pass, ev.tick + ev.gate) };
         cursor.last = note;
         this.queue.push({
           kind: 'on', frame, track: t, seq: this.seq++, note,
@@ -250,13 +318,16 @@ export class Player {
         a.note.dropped = true;
         return;
       }
-      a.note.id = this.engine.noteOn(a.program, a.pitch, { pan: a.pan, time: a.frame, volume: a.gain, bend: a.bend });
+      a.note.id = this.engine.noteOn(a.program, a.pitch, { pan: a.pan, time: a.frame + this.shift, volume: a.gain, bend: a.bend });
       this.sent.push(a.note);
+      this.inflight.push(a);
       return;
     }
     if (a.note.dropped || a.note.id === null) return;
-    if (a.kind === 'off') this.engine.noteOff(a.note.id, a.frame);
-    else if (a.kind === 'bend') this.engine.setPitchBend(a.note.id, a.cents, a.frame);
-    else this.engine.setVolume(a.note.id, a.gain, a.frame);
+    const time = a.frame + this.shift;
+    if (a.kind === 'off') this.engine.noteOff(a.note.id, time);
+    else if (a.kind === 'bend') this.engine.setPitchBend(a.note.id, a.cents, time);
+    else this.engine.setVolume(a.note.id, a.gain, time);
+    this.inflight.push(a);
   }
 }

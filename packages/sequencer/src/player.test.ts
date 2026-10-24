@@ -259,3 +259,97 @@ describe('Player', () => {
     expect(ons(calls).length).toBeGreaterThan(2);
   });
 });
+
+describe('一時停止・再開', () => {
+  const noteOffs = (calls: Call[]) => calls.filter((c) => c.type === 'noteOff');
+
+  it('pause で持続中のノートを cancel し、resume 後はずらした時刻で続きを送る', () => {
+    const { player, calls } = make('A c4 d4');
+    player.pump(0, 4800);
+    expect(ons(calls)).toHaveLength(1);
+    player.pause(12000);
+    expect(calls.filter((c) => c.type === 'cancel')).toEqual([{ type: 'cancel', ids: [1] }]);
+    player.resume(60000);
+    calls.length = 0;
+    player.pump(60000, 1e9);
+    expect(ons(calls).map((c) => c.type === 'noteOn' && c.time)).toEqual([72000]);
+    // c のノートオフ（24000 + 48000）は送らない。d のノートオフ（48000 + 48000）だけ
+    expect(noteOffs(calls).map((c) => c.type === 'noteOff' && c.time)).toEqual([96000]);
+    expect(calls.some((c) => c.type === 'cancel')).toBe(false);
+  });
+
+  it('持続中のノートの bend も再開後に送らない', () => {
+    const { player, calls } = make('A c8&B+50c8 d4');
+    player.pump(0, 4800);
+    player.pause(6000);
+    player.resume(6000);
+    calls.length = 0;
+    player.pump(6000, 1e9);
+    expect(calls.filter((c) => c.type === 'bend')).toEqual([]);
+    expect(calls.filter((c) => 'id' in c && c.id === 1)).toEqual([]);
+    expect(ons(calls)).toHaveLength(1);
+  });
+
+  it('先読みで送り済みのノートは再開後に 1 回だけ鳴る', () => {
+    const { player, calls } = make('A c4 d4');
+    player.pump(20000, 24800);
+    const dOn = ons(calls)[0];
+    expect(dOn.type === 'noteOn' && dOn.time).toBe(24000);
+    player.pause(20000);
+    const cancel = calls.filter((c) => c.type === 'cancel')[0];
+    expect(cancel.type === 'cancel' && cancel.ids).toContain(dOn.type === 'noteOn' ? dOn.id : -1);
+    player.resume(30000);
+    calls.length = 0;
+    player.pump(30000, 1e9);
+    expect(ons(calls).map((c) => c.type === 'noteOn' && c.time)).toEqual([34000]);
+    expect(noteOffs(calls)).toHaveLength(1);
+  });
+
+  it('一時停止中は pump しても何も送らない、pause・resume を重ねて呼んでも例外にならない', () => {
+    const { player, calls } = make('A c4 d4');
+    player.resume(100);
+    expect(player.paused).toBe(false);
+    player.pump(0, 4800);
+    player.pause(1000);
+    player.pause(5000);
+    expect(player.paused).toBe(true);
+    const n = calls.length;
+    player.pump(1000, 1e9);
+    expect(calls.length).toBe(n);
+    player.resume(2000);
+    player.resume(9000);
+    expect(player.paused).toBe(false);
+    player.pump(2000, 1e9);
+    // 最初の pause(1000) からのずれ 1000 だけ。2 回目の resume は無視される
+    expect(ons(calls).map((c) => c.type === 'noteOn' && c.time)).toEqual([0, 25000]);
+  });
+
+  it('一時停止中に stop すると、再開しても何も送らない。cancel を重ねない', () => {
+    const { player, calls } = make('A c4 d4');
+    player.pump(0, 4800);
+    player.pause(12000);
+    player.stop();
+    expect(calls.filter((c) => c.type === 'cancel')).toHaveLength(1);
+    const n = calls.length;
+    player.resume(20000);
+    player.pump(20000, 1e9);
+    expect(calls.length).toBe(n);
+  });
+
+  it('loopFrame と endFrame は一時停止のずれを含む', () => {
+    const looped = make('A L c4 d4').player;
+    expect(looped.loopFrame(1)).toBe(48000);
+    expect(looped.endFrame).toBeNull();
+    looped.pause(10000);
+    looped.resume(20000);
+    expect(looped.loopFrame(1)).toBe(58000);
+    expect(() => looped.loopFrame(0)).toThrow(RangeError);
+
+    const plain = make('A c4 d4').player;
+    expect(plain.endFrame).toBe(48000);
+    expect(() => plain.loopFrame(1)).toThrow(RangeError);
+    plain.pause(0);
+    plain.resume(5000);
+    expect(plain.endFrame).toBe(53000);
+  });
+});
