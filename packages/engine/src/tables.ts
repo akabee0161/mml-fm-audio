@@ -48,7 +48,7 @@ export const MOD_INDEX = 4 * Math.PI;
 /** 1 ボイスの出力に掛ける係数（暫定。4 搬送波の和でも 1.0 を超えない） */
 export const OUTPUT_GAIN = 0.25;
 
-function checkInt(name: string, value: number, max: number): void {
+function checkTableIndex(name: string, value: number, max: number): void {
   if (!Number.isInteger(value) || value < 0 || value > max) {
     throw new RangeError(`operatorFrequency: ${name} は 0〜${max} の整数にしてください（${name}=${value}）`);
   }
@@ -56,12 +56,12 @@ function checkInt(name: string, value: number, max: number): void {
 
 /** オペレーターの周波数（Hz）。A4（MIDI 69）= 440 Hz の平均律 */
 export function operatorFrequency(note: number, bo: number, mul: number, dt: number): number {
-  checkInt('note', note, 127);
-  checkInt('bo', bo, 3);
-  checkInt('mul', mul, 15);
-  checkInt('dt', dt, 7);
+  checkTableIndex('note', note, 127);
+  checkTableIndex('bo', bo, 3);
+  checkTableIndex('mul', mul, 15);
+  checkTableIndex('dt', dt, 7);
   const base = 440 * 2 ** ((note - 69) / 12);
-  // 添字は checkInt で表の範囲に収めてある
+  // 添字は checkTableIndex で表の範囲に収めてある
   return base * BO_TABLE[bo]! * MUL_TABLE[mul]! * 2 ** (DT_CENTS[dt]! / 1200);
 }
 

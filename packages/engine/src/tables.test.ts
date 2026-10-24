@@ -40,4 +40,13 @@ describe('operatorFrequency', () => {
     expect(() => operatorFrequency(60.5, 0, 1, 0)).toThrow(RangeError);
     expect(operatorFrequency(69, 0, 1, 0)).toBeCloseTo(440, 9);
   });
+
+  it('operatorFrequency は mul・dt・bo の下限（-1）・小数・NaN も RangeError', () => {
+    for (const bad of [-1, 0.5, Number.NaN, Infinity]) {
+      expect(() => operatorFrequency(60, bad, 1, 0)).toThrow(/bo/);
+      expect(() => operatorFrequency(60, 0, bad, 0)).toThrow(/mul/);
+      expect(() => operatorFrequency(60, 0, 1, bad)).toThrow(/dt/);
+      expect(() => operatorFrequency(bad, 0, 1, 0)).toThrow(/note/);
+    }
+  });
 });

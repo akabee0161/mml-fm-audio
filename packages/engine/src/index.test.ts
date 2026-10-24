@@ -54,6 +54,8 @@ describe('FmEngine', () => {
     const { engine } = await createEngine();
     expect(() => engine.cancel(5 as unknown as number[])).toThrow(RangeError);
     expect(() => engine.cancel(null as unknown as number[])).toThrow(RangeError);
+    // 配列風のオブジェクトも配列ではないので受け付けない
+    expect(() => engine.cancel({ length: 1, 0: 1 } as unknown as number[])).toThrow(RangeError);
   });
 
   it('noteOff は ID を送る', async () => {

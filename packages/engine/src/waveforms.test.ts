@@ -53,6 +53,13 @@ describe('waveValue', () => {
     expect(() => waveValue(0, Number.NaN)).toThrow(RangeError);
     expect(waveValue(0, 0.25)).toBeCloseTo(1, 12);
   });
+
+  it('waveValue は wave の小数（1.5）・x の無限大・NaN も RangeError', () => {
+    expect(() => waveValue(1.5, 0)).toThrow(RangeError);
+    expect(() => waveValue(Number.NaN, 0)).toThrow(RangeError);
+    expect(() => waveValue(0, Infinity)).toThrow(RangeError);
+    expect(() => waveValue(0, -Infinity)).toThrow(RangeError);
+  });
 });
 
 describe('WAVE_TABLES', () => {

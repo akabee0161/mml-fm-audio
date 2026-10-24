@@ -49,18 +49,21 @@ describe('VoiceGroups', () => {
   });
 
   it('効果音が 4 つを超えると、効果音のうち最も古く鳴らしたものを止める', () => {
-    const groups = new VoiceGroups(SR);
-    groups.register(0, sustain);
-    for (let i = 0; i < 5; i++) groups.noteOn('se', 100 + i, 0, 72, 64);
-    // 100 は奪われているので、音量を 0 にしても出力は変わらない
-    groups.setVolume(100, 0);
-    const kept = peakOf(renderGroup(groups, 'se', 512));
-    expect(kept).toBeGreaterThan(0);
-    // 101 は残っているので、音量を 0 にすると出力が小さくなる
-    groups.setVolume(101, 0);
-    advance(groups, 4);
-    const lowered = peakOf(renderGroup(groups, 'se', 512));
-    expect(lowered).toBeLessThan(kept);
+    /** 5 つ鳴らして（最も古い 100 は奪われる）、target の音量を 0 にした後の出力。target が null なら何もしない */
+    const outputAfter = (target: number | null): Float32Array => {
+      const groups = new VoiceGroups(SR);
+      groups.register(0, sustain);
+      for (let i = 0; i < 5; i++) groups.noteOn('se', 100 + i, 0, 72 + i, 64);
+      if (target !== null) groups.setVolume(target, 0);
+      advance(groups, 8);
+      return renderGroup(groups, 'se', 512);
+    };
+    const untouched = outputAfter(null);
+    expect(peakOf(untouched)).toBeGreaterThan(0);
+    // 奪われた 100 の setVolume は効かないので、何もしないときと出力が同じ
+    expect(outputAfter(100)).toEqual(untouched);
+    // 残っている 101 の setVolume は効くので、出力が変わる
+    expect(outputAfter(101)).not.toEqual(untouched);
   });
 
   it('noteOff・cancel は ID でどちらの割り当ての音にも効く', () => {
