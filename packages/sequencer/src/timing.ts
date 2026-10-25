@@ -11,7 +11,9 @@ function cumulativeSeconds(tempos: readonly Tempo[]): number[] {
   let seconds = 0;
   for (let i = 0; i < tempos.length; i++) {
     cumulative.push(seconds);
-    if (i + 1 < tempos.length) seconds += segmentSeconds(tempos[i + 1].tick - tempos[i].tick, tempos[i].bpm);
+    const current = tempos[i];
+    const next = tempos[i + 1];
+    if (current !== undefined && next !== undefined) seconds += segmentSeconds(next.tick - current.tick, current.bpm);
   }
   return cumulative;
 }
@@ -22,7 +24,7 @@ function segmentBefore(tempos: readonly Tempo[], tick: number): number {
   let hi = tempos.length; // tempos[0..lo) は tick 未満、tempos[hi..) は tick 以上
   while (lo < hi) {
     const mid = (lo + hi) >> 1;
-    if (tempos[mid].tick < tick) lo = mid + 1;
+    if (tempos[mid]!.tick < tick) lo = mid + 1; // mid は lo 以上 hi 未満で、範囲内
     else hi = mid;
   }
   return lo - 1;
@@ -35,8 +37,10 @@ export function tickToSeconds(tempos: readonly Tempo[], tick: number): number {
 
 function secondsAt(tempos: readonly Tempo[], cumulative: readonly number[], tick: number): number {
   const i = segmentBefore(tempos, tick);
-  if (i < 0) return 0;
-  return cumulative[i] + segmentSeconds(tick - tempos[i].tick, tempos[i].bpm);
+  const segment = tempos[i];
+  const start = cumulative[i];
+  if (segment === undefined || start === undefined) return 0; // i < 0（最初の区間より前）
+  return start + segmentSeconds(tick - segment.tick, segment.bpm);
 }
 
 export class Timeline {
@@ -77,9 +81,12 @@ export class Timeline {
     if (pass >= 1 && tick < loopStart) {
       throw new RangeError(`pass ${pass} の tick(${tick}) は loopStart(${loopStart}) 以上です`);
     }
-    while (tick >= this.loopEnd) {
-      pass += 1;
-      tick = loopStart + (tick - this.loopEnd);
+    if (tick >= this.loopEnd) {
+      // 1 周ずつ戻すと、ループ終了を越える長さに比例して遅くなるので、周の数を一度に求める
+      const length = this.loopEnd - loopStart;
+      const laps = Math.floor((tick - this.loopEnd) / length) + 1;
+      pass += laps;
+      tick -= laps * length;
     }
     if (pass === 0) return this.at(tick);
     return this.endSeconds + (pass - 1) * (this.endSeconds - this.startSeconds)

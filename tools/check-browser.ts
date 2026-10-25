@@ -161,7 +161,120 @@ try {
   const afterError = await maxPeak(1000);
   check(afterError < 0.001, `エラーのある MML は鳴らない（最大振幅 ${afterError.toFixed(4)}）`);
 
-  check(pageErrors.length === 0, `ページでエラーが起きていない（${pageErrors.join(' / ')}）`);
+  // loop・end の回数の表示：速くて短いループの MML は「ループ 1 回」以上になり、L のない短い MML は「終了 1 回」になる。
+  // 後続の確認は #mml を自分で fill するので、ここで書き換えてよい
+  const waitEvents = (pattern: RegExp) =>
+    page.waitForFunction(
+      (source) => new RegExp(source).test(document.getElementById('bgm-events')!.textContent ?? ''),
+      pattern.source,
+      { timeout: 4000 },
+    );
+  await page.fill('#mml', 'A t240 L o4 l16 c e');
+  await page.click('#mml-play');
+  let looped = true;
+  try {
+    await waitEvents(/ループ [1-9]\d* 回/);
+  } catch {
+    looped = false;
+  }
+  const loopText = await page.textContent('#bgm-events');
+  check(looped, `L のある短い MML を鳴らすと、ループの回数が 1 回以上になる（${loopText}）`);
+  await page.click('#mml-stop');
+  await waitSilent();
+
+  await page.fill('#mml', 'A t240 o4 l16 c e');
+  await page.click('#mml-play');
+  let ended = true;
+  try {
+    await waitEvents(/終了 1 回/);
+  } catch {
+    ended = false;
+  }
+  const endText = await page.textContent('#bgm-events');
+  check(ended, `L のない短い MML を鳴らすと、終了が 1 回になる（${endText}）`);
+  await page.click('#mml-stop');
+  await waitSilent();
+
+  // ここから FmAudio の確認：効果音・音量・フェード・一時停止。BGM は小さめの音（v6）にして、効果音との差が出るようにする
+  await page.fill('#mml', 'A @80 v6 o4 l8 L [c e g e]8');
+  const pressSe = (name: string) => page.click(`#se-buttons .se[data-se="${name}"]`);
+  const setRange = (id: string, value: number) =>
+    page.$eval(id, (el, v) => {
+      (el as HTMLInputElement).value = String(v);
+      el.dispatchEvent(new Event('input'));
+    }, value);
+
+  await page.click('#mml-play');
+  await page.waitForTimeout(300);
+  const bgmOnly = await maxPeak(500);
+  await pressSe('item');
+  const withSe = await maxPeak(500);
+  check(bgmOnly > 0.005 && withSe > bgmOnly, `BGM の再生中に効果音を押すと振幅が増える（${bgmOnly.toFixed(3)} → ${withSe.toFixed(3)}）`);
+
+  await page.click('#mml-stop');
+  await waitSilent();
+  await pressSe('hit');
+  const seAlone = await maxPeak(300);
+  await waitSilent();
+  const seAfter = await peak();
+  check(seAlone > 0.01 && seAfter < 0.001, `BGM がなくても効果音が鳴り、鳴り終わると無音に戻る（${seAlone.toFixed(3)} → ${seAfter.toFixed(4)}）`);
+
+  await page.click('#mml-play');
+  await page.waitForTimeout(300);
+  await setRange('#volume-master', 0);
+  await page.waitForTimeout(200);
+  const muted = await maxPeak(500);
+  await setRange('#volume-master', 100);
+  const unmuted = await maxPeak(500);
+  check(muted < 0.001 && unmuted > 0.005, `master を 0 にすると無音、100 に戻すと鳴る（${muted.toFixed(4)} → ${unmuted.toFixed(3)}）`);
+
+  await page.check('#speaker-filter');
+  const filtered = await maxPeak(500);
+  await page.uncheck('#speaker-filter');
+  const unfiltered = await maxPeak(500);
+  check(filtered > 0.001 && unfiltered > 0.005, `スピーカー風フィルターを切り替えても分析器に音が届く（${filtered.toFixed(3)}、${unfiltered.toFixed(3)}）`);
+
+  await page.click('#mml-fade');
+  await page.waitForTimeout(1500);
+  const faded = await maxPeak(500);
+  check(faded < 0.001, `フェードして停止すると 2 秒以内に無音になる（${faded.toFixed(4)}）`);
+
+  await page.click('#mml-play');
+  const replayAfterFade = await maxPeak(800);
+  check(replayAfterFade > 0.005, `フェードのあとに BGM 再生を押すと音量が戻って鳴る（${replayAfterFade.toFixed(3)}）`);
+
+  await page.click('#mml-pause');
+  await page.waitForTimeout(500);
+  const paused = await maxPeak(500);
+  await page.click('#mml-resume');
+  const resumed = await maxPeak(800);
+  check(paused < 0.001 && resumed > 0.005, `一時停止で無音になり、再開で鳴る（${paused.toFixed(4)} → ${resumed.toFixed(3)}）`);
+  await page.click('#mml-stop');
+  await waitSilent();
+
+  // BGM 側の 16 音と効果音を同時に鳴らすと、ボイス数が 16 を超える
+  await page.check('#load-toggle');
+  await page.click('#poly-test');
+  await page.waitForTimeout(200);
+  await pressSe('item');
+  await page.waitForTimeout(100);
+  await pressSe('item');
+  let voicesExceeded = true;
+  try {
+    await page.waitForFunction(
+      () => /ボイス数（最大） (1[7-9]|2\d)/.test(document.getElementById('load')!.textContent ?? ''),
+      null,
+      { timeout: 4000 },
+    );
+  } catch {
+    voicesExceeded = false;
+  }
+  check(voicesExceeded, '16 音と効果音を同時に鳴らすと、ボイス数（最大）が 16 を超える');
+  await page.click('#poly-test');
+  await page.uncheck('#load-toggle');
+  await waitSilent();
+
+  check(pageErrors.length === 0, `ページでエラーが起きていない${pageErrors.length > 0 ? `（${pageErrors.join(' / ')}）` : ''}`);
 } finally {
   if (browser) await browser.close();
   await new Promise<void>((resolve) => server.httpServer.close(() => resolve()));

@@ -150,6 +150,24 @@ describe('parseMml: 行とトラック', () => {
   });
 });
 
+describe('トラック数の上限', () => {
+  // A〜P、A1〜A14 の 30 個
+  const names = [...'ABCDEFGHIJKLMNOP'.split(''), ...Array.from({ length: 14 }, (_, i) => `A${i + 1}`)];
+
+  it('30 個ちょうどは通る。同じ名前の複数行は 1 つと数える', () => {
+    const song = parseMml([...names.map((n) => `${n} c`), 'A d', 'B d'].join('\n'));
+    expect(song.errors).toEqual([]);
+    expect(song.tracks).toHaveLength(30);
+  });
+
+  it('31 個目の新しいトラック名の位置にエラーを 1 件出し、31 個目以降は解析しない', () => {
+    const song = parseMml([...names.map((n) => `${n} c`), 'R bd', 'B2 c', 'R bd', 'A d'].join('\n'));
+    expect(song.errors).toEqual([{ line: 31, column: 1, message: 'トラックが多すぎます（30 まで）' }]);
+    expect(song.tracks).toHaveLength(30);
+    expect(song.tracks[0]!.events.map((e) => e.type === 'note' && e.note)).toEqual([60, 62]); // 既存の名前の行は連結される
+  });
+});
+
 describe('splitTracks', () => {
   it('positions は元の位置を引け、行の区切りは空白 1 文字', () => {
     const { tracks, errors } = splitTracks('A c d\nA e');
@@ -492,6 +510,93 @@ describe('parseMml: ループ L・E', () => {
 
   it('E がなければ、E より後の検査はしない', () => {
     expect(parseMml('A L c\nB c d e').errors).toEqual([]);
+  });
+});
+
+describe('parseMml: ループの中の長いノート', () => {
+  const errs = (mml: string) => parseMml(mml).errors.map((e) => [e.line, e.column]);
+  // B が 2 ティックのループ（L r%2 E）を決め、A が長いノートを書く。上限は 2 × 16 = 32 ティック
+  const loop = 'B L r%2 E\n';
+
+  it('ゲートがループ 1 周の 16 倍ちょうどなら通り、超えるとノートの書き始めを指すエラー', () => {
+    expect(errs(`${loop}A c%32`)).toEqual([]);
+    const song = parseMml(`${loop}A r%1 c%33`);
+    expect(song.errors).toHaveLength(1);
+    expect(song.errors[0]).toMatchObject({ line: 2, column: 7 });
+    expect(song.errors[0]!.message).toContain('ループの中のノートが長すぎます');
+  });
+
+  it('タイでつないだノートは、タイ全体のゲートで数え、エラーは最初の音符を指す', () => {
+    expect(errs(`${loop}A c%20&c%12`)).toEqual([]);
+    expect(errs(`${loop}A c%20&c%13`)).toEqual([[2, 3]]);
+  });
+
+  it('q を掛けたゲートで数える', () => {
+    expect(errs(`${loop}A q4 c%64`)).toEqual([]);
+    expect(errs(`${loop}A q4 c%66`)).toEqual([[2, 6]]);
+  });
+
+  it('L の前でノートオンしたノートは、長くても通る', () => {
+    expect(errs('A c%1000 L r%2 E')).toEqual([]);
+  });
+
+  it('L のない曲は、長くても通る', () => {
+    expect(errs('A c%1000\nB r%2')).toEqual([]);
+  });
+
+  it('E がない曲では、ノートが曲の終わり（ループ終了）を越えないので、規則に当たらない', () => {
+    expect(errs('A L c%2\nB r%1 c%33')).toEqual([]);
+  });
+
+  it('複数のトラックのエラーを、位置の順に全部出す', () => {
+    expect(errs(`${loop}A c%33\nC r%1 c%40`)).toEqual([[2, 3], [3, 7]]);
+  });
+
+  it('ループ 1 周の長さが 0 のときは、既存のエラーだけでゼロ除算などは起きない', () => {
+    expect(errs('A L E c%1000')).toEqual([[1, 5]]);
+    expect(errs('A c%1000 L')).toEqual([[1, 10]]);
+  });
+});
+
+describe('parseMml: 同じ tick の v・B は最後の 1 つにまとめる', () => {
+  const ctl = (mml: string, track = 0) =>
+    parseMml(mml).tracks[track]!.events.map((e) => (e.type === 'volume' ? `v${e.volume}@${e.tick}` : e.type === 'bend' ? `B${e.cents}@${e.tick}` : `n@${e.tick}`));
+
+  it('同じ tick の v は最後の 1 つだけ残る', () => {
+    expect(ctl('A c v1 v2 v3 c')).toEqual(['n@0', 'v3@96', 'n@96']);
+  });
+
+  it('同じ tick の B も最後の 1 つだけ残る', () => {
+    expect(ctl('A c B+10 B+20 B-30 c')).toEqual(['n@0', 'B-30@96', 'n@96']);
+  });
+
+  it('v B v B が交互でも、それぞれ最後の 1 つにまとまる', () => {
+    expect(ctl('A c v1 B+1 v2 B+2 c')).toEqual(['n@0', 'v2@96', 'B2@96', 'n@96']);
+  });
+
+  it('tick が違えばまとめない', () => {
+    expect(ctl('A c v1 r4 v2 c')).toEqual(['n@0', 'v1@96', 'v2@192', 'n@192']);
+  });
+
+  it('ノートの前後ではまとめない（ノートが tick を進める）', () => {
+    expect(ctl('A v1 c v2 c')).toEqual(['v1@0', 'n@0', 'v2@96', 'n@96']);
+  });
+
+  it('[ ] の繰り返しで同じ tick に並んでも 1 つ', () => {
+    const song = parseMml('A c [[v1]250]250 c');
+    expect(song.errors).toEqual([]);
+    expect(ctl('A c [[v1]250]250 c')).toEqual(['n@0', 'v1@96', 'n@96']);
+  });
+
+  it('L の前後の v：tick 0 の v5 L v6 は v6 だけ残る', () => {
+    const song = parseMml('A v5 L v6 c');
+    expect(ctl('A v5 L v6 c')).toEqual(['v6@0', 'n@0']);
+    expect(song.loopStart).toBe(0);
+  });
+
+  it('エラーの命令は残さず、ドラムトラックの v は events に入れない', () => {
+    expect(ctl('A c v1 v99 c')).toEqual(['n@0', 'v1@96', 'n@96']);
+    expect(ctl('R bd v1 v2 bd')).toEqual(['n@0', 'n@96']);
   });
 });
 

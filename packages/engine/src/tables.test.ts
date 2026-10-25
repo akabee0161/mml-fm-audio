@@ -30,4 +30,23 @@ describe('operatorFrequency', () => {
     expect(operatorFrequency(69, 0, 1, 1)).toBeCloseTo(440 * 2 ** (3 / 1200), 6);
     expect(operatorFrequency(69, 0, 1, 5)).toBeCloseTo(440 * 2 ** (-3 / 1200), 6);
   });
+
+  it('operatorFrequency は範囲外の引数で RangeError', () => {
+    expect(() => operatorFrequency(128, 0, 1, 0)).toThrow(RangeError);
+    expect(() => operatorFrequency(-1, 0, 1, 0)).toThrow(RangeError);
+    expect(() => operatorFrequency(60, 4, 1, 0)).toThrow(RangeError);
+    expect(() => operatorFrequency(60, 0, 16, 0)).toThrow(RangeError);
+    expect(() => operatorFrequency(60, 0, 1, 8)).toThrow(RangeError);
+    expect(() => operatorFrequency(60.5, 0, 1, 0)).toThrow(RangeError);
+    expect(operatorFrequency(69, 0, 1, 0)).toBeCloseTo(440, 9);
+  });
+
+  it('operatorFrequency は mul・dt・bo の下限（-1）・小数・NaN も RangeError', () => {
+    for (const bad of [-1, 0.5, Number.NaN, Infinity]) {
+      expect(() => operatorFrequency(60, bad, 1, 0)).toThrow(/bo/);
+      expect(() => operatorFrequency(60, 0, bad, 0)).toThrow(/mul/);
+      expect(() => operatorFrequency(60, 0, 1, bad)).toThrow(/dt/);
+      expect(() => operatorFrequency(bad, 0, 1, 0)).toThrow(/note/);
+    }
+  });
 });

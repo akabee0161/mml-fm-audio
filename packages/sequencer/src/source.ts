@@ -11,10 +11,14 @@ export interface TrackSource { name: string; text: string; positions: SourcePosi
 // A〜P、A〜P に 1 以上の整数（先頭が 0 でない）、R。後ろは空白か行末
 const TRACK_NAME = /^(?:[A-P][1-9][0-9]*|[A-P]|R)(?=\s|$)/u;
 
+/** 曲のトラック数の上限（違うトラック名の数）。超えた分は解析しない */
+export const MAX_TRACKS = 30;
+
 /** 行をトラックごとに連結する。行の区切りは空白 1 文字として text に入れる。コメントを除く。CRLF は LF と同じ */
 export function splitTracks(mml: string): { tracks: TrackSource[]; errors: MmlError[] } {
   const byName = new Map<string, TrackSource>();
   const errors: MmlError[] = [];
+  let tooMany = false;
 
   mml.split(/\r?\n/).forEach((rawLine, index) => {
     const line = index + 1;
@@ -35,7 +39,7 @@ export function splitTracks(mml: string): { tracks: TrackSource[]; errors: MmlEr
     if (!match) {
       errors.push({
         line,
-        column: columns[lead],
+        column: columns[lead]!, // lead は body の範囲内
         message: 'トラック名が正しくありません（行頭に A〜P、A〜P に 1 以上の整数、R のどれかを書きます）',
       });
       return;
@@ -44,6 +48,12 @@ export function splitTracks(mml: string): { tracks: TrackSource[]; errors: MmlEr
     const name = match[0];
     let track = byName.get(name);
     if (!track) {
+      // 上限を超える新しいトラック名は、最初の 1 件だけ報告し、その行以降の新しいトラックは読まない
+      if (byName.size >= MAX_TRACKS) {
+        if (!tooMany) errors.push({ line, column: columns[lead]!, message: `トラックが多すぎます（${MAX_TRACKS} まで）` });
+        tooMany = true;
+        return;
+      }
       track = { name, text: '', positions: [] };
       byName.set(name, track);
     }
@@ -53,13 +63,13 @@ export function splitTracks(mml: string): { tracks: TrackSource[]; errors: MmlEr
 
     // 2 行目以降は、前の行との間に空白 1 文字を入れる（位置は前の行の末尾の次）
     if (track.text !== '') {
-      const last = track.positions[track.positions.length - 1];
+      const last = track.positions[track.positions.length - 1]!; // text が空でなければ positions も空でない
       track.text += ' ';
       track.positions.push({ line: last.line, column: last.column + 1 });
     }
     track.text += rest;
     for (let i = body.length - rest.length; i < body.length; i++) {
-      track.positions.push({ line, column: columns[i] });
+      track.positions.push({ line, column: columns[i]! });
     }
   });
 

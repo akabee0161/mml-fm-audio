@@ -33,13 +33,15 @@ type NoteEvent = Extract<TrackEvent, { type: 'note' }>;
 
 /**
  * 実行できた命令 1 つの記録。`E` より後の命令の検査（Task 5）が、後から tick と元の位置を引くために使う。
- * tick は命令を実行する前の tick。noteOn は、音符がノートオンする（タイの続きではない）ときだけ true
+ * tick は命令を実行する前の tick。noteOn は、音符がノートオンする（タイの続きではない）ときだけ true で、
+ * そのとき note はその命令が作った note イベント（添字ではなく参照で対応させる）
  */
 export interface CommandTrace {
   command: string;
   tick: number;
   position: SourcePosition;
   noteOn: boolean;
+  note: NoteEvent | null;
 }
 
 interface TempoEntry extends Tempo { position: SourcePosition }
@@ -70,8 +72,12 @@ interface TrackContext {
   lastNote: { event: NoteEvent; ticks: number; gateQ: number } | null;
   /** & を読んだ後、次の音符を待っている。pos は & の text 上の添字 */
   tie: { pos: number } | null;
-  /** いま実行した命令が、ノートオンした（音符・ドラム。タイの続きは含まない） */
-  noteOn: boolean;
+  /** いま実行した命令が、ノートオンして作った note イベント（音符・ドラム。タイの続きは含まない）。作らなければ null */
+  noteEvent: NoteEvent | null;
+  /** 最後に積んだ volume イベントの events の添字（なければ -1） */
+  volumeIndex: number;
+  /** 最後に積んだ bend イベントの events の添字（なければ -1） */
+  bendIndex: number;
   /** ドラムトラック（R）。ドラム名を読み、使える命令が限られる */
   drumTrack: boolean;
   /** このトラックのテンポ。同じ tick は後の値 */
@@ -133,7 +139,7 @@ function readDuration(ctx: TrackContext): number {
 
 function note(letter: string): Command {
   return (ctx) => {
-    let semitone = NOTE_SEMITONES[letter];
+    let semitone = NOTE_SEMITONES[letter]!; // letter は音名の表にある文字だけ
     const sign = peek(ctx);
     if (sign === '+' || sign === '-') {
       ctx.pos++;
@@ -152,7 +158,6 @@ function note(letter: string): Command {
       previous.ticks += ticks;
       previous.event.gate = gateOf(previous.gateQ, previous.ticks);
     } else {
-      ctx.noteOn = true;
       const event: NoteEvent = {
         type: 'note',
         tick: ctx.tick,
@@ -164,10 +169,27 @@ function note(letter: string): Command {
         bend: ctx.bend,
       };
       ctx.events.push(event);
+      ctx.noteEvent = event;
       ctx.lastNote = { event, ticks, gateQ: ctx.gateQ };
     }
     ctx.tick += ticks;
   };
+}
+
+/**
+ * v・B のイベントを積む。同じ tick に同じ種類のイベントがあれば、それを置き換える
+ * （同じ時刻に送るコントロールは最後の値しか効かない。長さ 0 の v を大量に書かれても events が増えないようにする）。O(1)。
+ * tick の比較だけで足りる：ノートは 1 tick 以上進むので、同じ tick でノートの後に v・B は来ない
+ */
+function pushControl(ctx: TrackContext, event: Extract<TrackEvent, { type: 'volume' | 'bend' }>): void {
+  const key = event.type === 'volume' ? 'volumeIndex' : 'bendIndex';
+  const index = ctx[key];
+  if (index >= 0 && ctx.events[index]!.tick === event.tick) {
+    ctx.events[index] = event;
+    return;
+  }
+  ctx[key] = ctx.events.length;
+  ctx.events.push(event);
 }
 
 /** ドラム名（2 文字）。R では 1 文字の命令より先に照合する */
@@ -185,9 +207,9 @@ function drum(name: keyof typeof DRUM_PROGRAMS): Command {
       bend: 0,
     };
     ctx.events.push(event);
+    ctx.noteEvent = event;
     // ドラムはタイでつながない
     ctx.lastNote = null;
-    ctx.noteOn = true;
     ctx.tick += ticks;
   };
 }
@@ -249,7 +271,7 @@ const volume: Command = (ctx) => {
   ctx.volume = readRanged(ctx, 'v', 0, 15);
   // R の v は、次のドラムから効く（ドラムは鳴り終わるまで鳴り、途中で音量を変える対象がない）
   if (ctx.drumTrack) return;
-  ctx.events.push({ type: 'volume', tick: ctx.tick, volume: ctx.volume });
+  pushControl(ctx, { type: 'volume', tick: ctx.tick, volume: ctx.volume });
 };
 
 const pitchBend: Command = (ctx) => {
@@ -260,7 +282,7 @@ const pitchBend: Command = (ctx) => {
   if (n === null) throw new CommandError('B の符号の後には整数を書きます');
   if (n > 1200) throw new CommandError(`B${sign}${n} が -1200〜+1200 の範囲外です`);
   ctx.bend = sign === '-' && n !== 0 ? -n : n;
-  ctx.events.push({ type: 'bend', tick: ctx.tick, cents: ctx.bend });
+  pushControl(ctx, { type: 'bend', tick: ctx.tick, cents: ctx.bend });
 };
 
 /** 小数を読む（132.5）。整数部がない、または小数点の後に数字がなければ null */
@@ -278,10 +300,10 @@ const tempo: Command = (ctx) => {
   const bpm = readDecimal(ctx);
   if (bpm === null) throw new CommandError('t の後には 1〜999 のテンポ（小数可）を書きます');
   if (bpm < 1 || bpm > 999) throw new CommandError(`テンポ ${bpm} が 1〜999 の範囲外です`);
-  const entry = { tick: ctx.tick, bpm, position: ctx.source.positions[ctx.commandStart] };
+  const entry = { tick: ctx.tick, bpm, position: ctx.source.positions[ctx.commandStart]! };
   // 1 トラックの中で tick は減らないので、同じ tick のエントリーがあるとすれば末尾だけ
   const last = ctx.tempos.length - 1;
-  if (last >= 0 && ctx.tempos[last].tick === ctx.tick) ctx.tempos[last] = entry;
+  if (ctx.tempos[last]?.tick === ctx.tick) ctx.tempos[last] = entry;
   else ctx.tempos.push(entry);
 };
 
@@ -367,8 +389,10 @@ function lookupCommand(ctx: TrackContext, start: number): { name: string; length
     if (command) return { name, length: 2, command };
   }
   const char = text[start];
+  if (char === undefined) return undefined;
   const table = ctx.drumTrack ? DRUM_COMMANDS : COMMANDS;
-  return Object.hasOwn(table, char) ? { name: char, length: 1, command: table[char] } : undefined;
+  const command = Object.hasOwn(table, char) ? table[char] : undefined;
+  return command ? { name: char, length: 1, command } : undefined;
 }
 
 /** & と次の音符の間に書ける命令（音符は別に許す） */
@@ -411,7 +435,9 @@ function parseTrack(source: TrackSource, errors: MmlError[]): ParsedTrack {
     commandStart: 0,
     lastNote: null,
     tie: null,
-    noteOn: false,
+    noteEvent: null,
+    volumeIndex: -1,
+    bendIndex: -1,
     drumTrack: source.name === DRUM_TRACK_NAME,
     tempos: [],
     repeats: [],
@@ -425,7 +451,7 @@ function parseTrack(source: TrackSource, errors: MmlError[]): ParsedTrack {
     const key = `${index}:${message}`;
     if (reported.has(key)) return;
     reported.add(key);
-    const where = source.positions[index];
+    const where = source.positions[index]!; // positions は text と同じ長さ
     errors.push({ line: where.line, column: where.column, message });
   };
 
@@ -439,6 +465,7 @@ function parseTrack(source: TrackSource, errors: MmlError[]): ParsedTrack {
     }
     const start = ctx.pos;
     const char = text[start];
+    if (char === undefined) break;
     const found = lookupCommand(ctx, start);
     // & の次に書けるのは音符・B・v だけ。ほかの命令なら & の位置で報告し、その命令は普通に読む
     if (ctx.tie && found && !(char in NOTE_SEMITONES) && !TIE_TRANSPARENT.has(char)) {
@@ -447,7 +474,7 @@ function parseTrack(source: TrackSource, errors: MmlError[]): ParsedTrack {
     }
     const tickBefore = ctx.tick;
     ctx.commandStart = start;
-    ctx.noteOn = false;
+    ctx.noteEvent = null;
     try {
       if (!found) throw new CommandError(`命令 '${char}' が分かりません`);
       ctx.pos += found.length;
@@ -455,8 +482,9 @@ function parseTrack(source: TrackSource, errors: MmlError[]): ParsedTrack {
       trace.push({
         command: found.name,
         tick: tickBefore,
-        position: source.positions[start],
-        noteOn: ctx.noteOn,
+        position: source.positions[start]!,
+        noteOn: ctx.noteEvent !== null,
+        note: ctx.noteEvent,
       });
     } catch (error) {
       if (!(error instanceof CommandError)) throw error;
@@ -508,8 +536,36 @@ function mergeTempos(parsed: ParsedTrack[], errors: MmlError[]): Tempo[] {
     }
   }
   const tempos = [...byTick].map(([tick, bpm]) => ({ tick, bpm })).sort((x, y) => x.tick - y.tick);
-  if (tempos.length === 0 || tempos[0].tick !== 0) tempos.unshift({ tick: 0, bpm: DEFAULT_BPM });
+  if (tempos.length === 0 || tempos[0]?.tick !== 0) tempos.unshift({ tick: 0, bpm: DEFAULT_BPM });
   return tempos;
+}
+
+/**
+ * ループの中でノートオンしたノートのゲートの上限を、ループ 1 周の長さの何倍にするか。
+ * 同じノートが周ごとに重なるのを 16 周分までに抑え、Player の送り済みのノートが再生時間に比例して溜まり続けないようにする、
+ * 独立した定数（音源の同時発音数とは関係づけない）
+ */
+const MAX_LOOP_GATE_PERIODS = 16;
+
+/**
+ * ループの中（tick が loopStart 以上 loopEnd 未満）でノートオンしたノートの gate が、1 周の長さの
+ * MAX_LOOP_GATE_PERIODS 倍を超えていたらエラーにする（ちょうどは通る）。エラーはそのノートの書き始めを指す。
+ * 1 周の長さが 0 以下のとき（loopStart >= loopEnd）は、resolveLoop が報告済みなので何もしない
+ */
+function checkLongLoopNotes(
+  traces: CommandTrace[][],
+  loop: { loopStart: number | null; loopEnd: number },
+  errors: MmlError[],
+): void {
+  const { loopStart, loopEnd } = loop;
+  if (loopStart === null || loopEnd <= loopStart) return;
+  const maxGate = (loopEnd - loopStart) * MAX_LOOP_GATE_PERIODS;
+  // 1 トラックでこの上限を超えるノートは高々 1 つ（gate はノートの長さ以下で、次のノートは gate より後に始まる）なので、重複の除去はしない
+  for (const trace of traces.flat()) {
+    const note = trace.note;
+    if (note === null || note.tick < loopStart || note.tick >= loopEnd || note.gate <= maxGate) continue;
+    reportAt(errors, trace.position, `ループの中のノートが長すぎます（ループ 1 周の ${MAX_LOOP_GATE_PERIODS} 倍を超えて持続します）`);
+  }
 }
 
 /** E より後に書くとエラーになる命令（音符はノートオンだけ。タイの続きと休符は書ける） */
@@ -583,6 +639,7 @@ export function analyzeMml(mml: string): { song: Song; traces: CommandTrace[][] 
   const tempos = mergeTempos(parsed, errors);
   const length = tracks.reduce((max, track) => Math.max(max, track.length), 0);
   const loop = resolveLoop(parsed.map((p) => p.trace), length, errors);
+  checkLongLoopNotes(parsed.map((p) => p.trace), loop, errors);
   errors.sort((x, y) => x.line - y.line || x.column - y.column);
   return {
     song: { tracks, tempos, length, loopStart: loop.loopStart, loopEnd: loop.loopEnd, errors },

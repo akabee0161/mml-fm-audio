@@ -219,4 +219,322 @@ describe('Player', () => {
     const player = new Player(engine, song, { sampleRate: SR, startFrame: 0 });
     expect(() => player.pump(0, 4800)).not.toThrow();
   });
+
+  it('少しずつ作っても、一度に作ったときと送る順・時刻が同じ', () => {
+    // 3 トラック・ループあり・テンポ変化・ループ終了を越えるノート・v と B を含む
+    const mml = [
+      'A t120 c4 L d4 B+30 e4 t180 v8 f4 g4&v5g4 E',
+      'B r4 r4 c8 d8 B-20 e4 v9 f4 r8 g8&g4',
+      'C r2 r4 r8 e8&e4 v7 c4',
+    ].join('\n');
+    const song = parseMml(mml);
+    expect(song.errors).toEqual([]);
+    const tl = new Timeline(song);
+    // 3 周目の終わりまで。25 ms（1200 フレーム）ごと・先読み 4800 フレームの最後の pump が、同じ範囲を覆うようにそろえる
+    const steps = Math.ceil(tl.seconds(3, song.loopEnd) * SR / 1200);
+    const horizon = steps * 1200 + 4800;
+
+    const once = fakeEngine();
+    new Player(once.engine, song, { sampleRate: SR, startFrame: 0 }).pump(0, horizon);
+
+    const stepped = fakeEngine();
+    const player = new Player(stepped.engine, song, { sampleRate: SR, startFrame: 0 });
+    for (let i = 0; i <= steps; i++) player.pump(i * 1200, i * 1200 + 4800);
+
+    expect(once.calls.length).toBeGreaterThan(50);
+    expect(once.calls.some((c) => c.type === 'bend')).toBe(true);
+    expect(once.calls.some((c) => c.type === 'volume')).toBe(true);
+    expect(stepped.calls).toEqual(once.calls);
+  });
+
+  it('ループする 1 トラックで、1 回の pump が作るアクションは先読みの範囲の分だけ', () => {
+    const { player } = make('A L [[c%1]200]200');
+    player.pump(0, 4800);
+    expect(player.pendingCount).toBeLessThan(1000);
+  });
+
+  it('1 周にノートのないトラックがあっても、pump が先読みの範囲で止まる', () => {
+    const { player, calls } = make('A L c4 d4 E\nB r4 r4');
+    player.pump(0, 4 * 24000);
+    expect(ons(calls).length).toBeGreaterThan(2);
+  });
+});
+
+describe('同じ tick の v・B をまとめた曲を送る', () => {
+  const ctls = (calls: Call[]) => calls.filter((c) => c.type === 'volume' || c.type === 'bend');
+
+  it('同じ tick の v は最後の値だけを、最後にノートオンしたノートへ 1 回送る', () => {
+    const { player, calls } = make('A c v1 v2 v3 B+10 B+20 c');
+    player.pump(0, 1e9);
+    expect(ctls(calls)).toEqual([
+      { type: 'volume', id: 1, volume: volumeGain(3), time: 24000 },
+      { type: 'bend', id: 1, cents: 20, time: 24000 },
+    ]);
+  });
+
+  it('L と同じ tick の v は、周の頭では最後のノートがないので捨てる（まとめる前と同じ）', () => {
+    const { player, calls, song } = make('A c L v1 v2 c E');
+    expect(song.tracks[0]!.events.map((e) => e.type)).toEqual(['note', 'volume', 'note']);
+    player.pump(0, 4 * 48000);
+    // 最初の c の前には v は無い。L の後の v2 は、周 0 では最初の c（id 1）に効き、周 1 以降は周の頭で最後のノートがないので捨てる
+    expect(ctls(calls)).toEqual([{ type: 'volume', id: 1, volume: volumeGain(2), time: 24000 }]);
+  });
+
+  it('1 周が 2 ティックで、長さ 0 の v を 6 万個書いた曲でも、events と 1 回の pump のアクションの数が小さい', () => {
+    const { player, calls, song } = make('A t999 L c%1 [[v1]250]250 c%1 E');
+    expect(song.errors).toEqual([]);
+    expect(song.tracks[0]!.events).toHaveLength(3);
+    player.pump(0, 0.1 * SR); // 先読み 0.1 秒に約 80 周入る
+    expect(calls.length).toBeLessThan(1000);
+    expect(player.pendingCount).toBeLessThan(10);
+  });
+
+  it('16 トラックで v と B を混ぜた同じ形でも、数が小さい', () => {
+    const names = 'ABCDEFGHIJKLMNOP'.split('');
+    const mml = names
+      .map((n, i) => `${n} ${i === 0 ? 't999 L ' : ''}c%1 [[${i % 2 === 0 ? 'v1 B+5' : 'B-5 v2'}]125]250 c%1${i === 0 ? ' E' : ''}`)
+      .join('\n');
+    const { player, calls, song } = make(mml);
+    for (const t of song.tracks) expect(t.events).toHaveLength(4);
+    player.pump(0, 0.1 * SR);
+    expect(calls.length).toBeLessThan(20000);
+    expect(player.pendingCount).toBeLessThan(200);
+  });
+});
+
+describe('一時停止・再開', () => {
+  const noteOffs = (calls: Call[]) => calls.filter((c) => c.type === 'noteOff');
+
+  it('pause で持続中のノートを cancel し、resume 後はずらした時刻で続きを送る', () => {
+    const { player, calls } = make('A c4 d4');
+    player.pump(0, 4800);
+    expect(ons(calls)).toHaveLength(1);
+    player.pause(12000);
+    expect(calls.filter((c) => c.type === 'cancel')).toEqual([{ type: 'cancel', ids: [1] }]);
+    player.resume(60000);
+    calls.length = 0;
+    player.pump(60000, 1e9);
+    expect(ons(calls).map((c) => c.type === 'noteOn' && c.time)).toEqual([72000]);
+    // c のノートオフ（24000 + 48000）は送らない。d のノートオフ（48000 + 48000）だけ
+    expect(noteOffs(calls).map((c) => c.type === 'noteOff' && c.time)).toEqual([96000]);
+    expect(calls.some((c) => c.type === 'cancel')).toBe(false);
+  });
+
+  it('ノートオフ未送信で、ノートオフが一時停止の時刻より前のノートは、本来の時刻でノートオフを 1 回送り（cancel しない）、再開後に重ねて送らない', () => {
+    const { player, calls } = make('A c4 r4 d4');
+    player.pump(0, 4800); // c のノートオンだけ送る（ノートオフ 24000 は先読みの外）
+    expect(ons(calls)).toHaveLength(1);
+    player.pause(30000); // c のノートオフ（24000）は 30000 より前
+    expect(noteOffs(calls)).toEqual([{ type: 'noteOff', id: 1, time: 24000 }]);
+    expect(calls.some((c) => c.type === 'cancel')).toBe(false);
+    player.resume(60000);
+    calls.length = 0;
+    player.pump(60000, 1e9);
+    // c のノートオン・ノートオフは送らない。d のノートオン（48000 + 30000）とノートオフだけ
+    expect(ons(calls).map((c) => c.type === 'noteOn' && c.note)).toEqual([62]);
+    expect(noteOffs(calls)).toHaveLength(1);
+    expect(noteOffs(calls).some((c) => c.type === 'noteOff' && c.id === 1)).toBe(false);
+  });
+
+  it('ノートオフ送り済みで一時停止の時刻より前に終わるノートは、pause で何も送らない', () => {
+    const { player, calls } = make('A c4 d4');
+    player.pump(0, 30000); // c のノートオフ（24000）まで送り済み
+    expect(noteOffs(calls)).toHaveLength(1);
+    calls.length = 0;
+    player.pause(40000);
+    expect(calls.filter((c) => c.type === 'noteOff' && c.id === 1)).toEqual([]);
+  });
+
+  it('ノートオフ送り済みで再送されたノートは、ノートオンを送り直すたびにノートオフが未送信に戻り、2 回目の pause でずらした時刻のノートオフが送られる', () => {
+    const { player, calls } = make('A r4 c4 d4');
+    player.pump(0, 60000); // c のノートオン 24000・ノートオフ 48000 まで送り済み
+    expect(noteOffs(calls)).toHaveLength(1);
+    player.pause(10000); // c のノートオンは 10000 以降なので id を捨てて再送する
+    player.resume(60000); // shift = 50000
+    calls.length = 0;
+    player.pump(60000, 80000); // c のノートオン（24000 + 50000）だけ再送。ノートオフ（98000）は先読みの外
+    expect(ons(calls).map((c) => c.type === 'noteOn' && c.note)).toEqual([60]);
+    const newId = ons(calls)[0]!.type === 'noteOn' ? (ons(calls)[0] as { id: number }).id : -1;
+    expect(noteOffs(calls)).toEqual([]);
+    player.pause(100000); // 曲の時刻 50000 > c のノートオフ 48000
+    expect(noteOffs(calls)).toEqual([{ type: 'noteOff', id: newId, time: 48000 + 50000 }]);
+    expect(calls.some((c) => c.type === 'cancel')).toBe(false);
+  });
+
+  it('持続中のノートの bend も再開後に送らない', () => {
+    const { player, calls } = make('A c8&B+50c8 d4');
+    player.pump(0, 4800);
+    player.pause(6000);
+    player.resume(6000);
+    calls.length = 0;
+    player.pump(6000, 1e9);
+    expect(calls.filter((c) => c.type === 'bend')).toEqual([]);
+    expect(calls.filter((c) => 'id' in c && c.id === 1)).toEqual([]);
+    expect(ons(calls)).toHaveLength(1);
+  });
+
+  it('先読みで送り済みのノートは再開後に 1 回だけ鳴る', () => {
+    const { player, calls } = make('A c4 d4');
+    player.pump(20000, 24800);
+    const dOn = ons(calls)[0];
+    expect(dOn.type === 'noteOn' && dOn.time).toBe(24000);
+    player.pause(20000);
+    const cancel = calls.filter((c) => c.type === 'cancel')[0];
+    expect(cancel.type === 'cancel' && cancel.ids).toContain(dOn.type === 'noteOn' ? dOn.id : -1);
+    player.resume(30000);
+    calls.length = 0;
+    player.pump(30000, 1e9);
+    expect(ons(calls).map((c) => c.type === 'noteOn' && c.time)).toEqual([34000]);
+    expect(noteOffs(calls)).toHaveLength(1);
+  });
+
+  it('一時停止中は pump しても何も送らない、pause・resume を重ねて呼んでも例外にならない', () => {
+    const { player, calls } = make('A c4 d4');
+    player.resume(100);
+    expect(player.paused).toBe(false);
+    player.pump(0, 4800);
+    player.pause(1000);
+    player.pause(5000);
+    expect(player.paused).toBe(true);
+    const n = calls.length;
+    player.pump(1000, 1e9);
+    expect(calls.length).toBe(n);
+    player.resume(2000);
+    player.resume(9000);
+    expect(player.paused).toBe(false);
+    player.pump(2000, 1e9);
+    // 最初の pause(1000) からのずれ 1000 だけ。2 回目の resume は無視される
+    expect(ons(calls).map((c) => c.type === 'noteOn' && c.time)).toEqual([0, 25000]);
+  });
+
+  it('一時停止中に stop すると、再開しても何も送らない。cancel を重ねない', () => {
+    const { player, calls } = make('A c4 d4');
+    player.pump(0, 4800);
+    player.pause(12000);
+    player.stop();
+    expect(calls.filter((c) => c.type === 'cancel')).toHaveLength(1);
+    const n = calls.length;
+    player.resume(20000);
+    player.pump(20000, 1e9);
+    expect(calls.length).toBe(n);
+  });
+
+  it('loopFrame と endFrame は一時停止のずれを含む', () => {
+    const looped = make('A L c4 d4').player;
+    expect(looped.loopFrame(1)).toBe(48000);
+    expect(looped.endFrame).toBeNull();
+    looped.pause(10000);
+    looped.resume(20000);
+    expect(looped.loopFrame(1)).toBe(58000);
+    expect(() => looped.loopFrame(0)).toThrow(RangeError);
+
+    const plain = make('A c4 d4').player;
+    expect(plain.endFrame).toBe(48000);
+    expect(() => plain.loopFrame(1)).toThrow(RangeError);
+    plain.pause(0);
+    plain.resume(5000);
+    expect(plain.endFrame).toBe(53000);
+  });
+
+  it('pause・resume は有限でない nowFrame と、一時停止した時刻より前の resume を理由つきの RangeError にして、状態を変えない', () => {
+    const { player, calls } = make('A c4 d4');
+    player.pump(0, 4800);
+    for (const bad of [Number.NaN, Infinity, -Infinity]) {
+      expect(() => player.pause(bad)).toThrow(RangeError);
+      expect(() => player.resume(bad)).toThrow(/resume.*有限/);
+    }
+    expect(player.paused).toBe(false);
+    player.pause(12000);
+    for (const bad of [Number.NaN, Infinity]) expect(() => player.resume(bad)).toThrow(RangeError);
+    expect(() => player.resume(11999)).toThrow(/resume.*12000/);
+    expect(player.paused).toBe(true);
+    player.resume(60000); // 状態が変わっていないので、正しい値なら再開できる
+    calls.length = 0;
+    player.pump(60000, 1e9);
+    expect(ons(calls).map((c) => c.type === 'noteOn' && c.time)).toEqual([72000]);
+  });
+
+  it('先読みが次の周の頭にかかった状態で pause しても、各ノートは再開後に 1 回ずつしか鳴らない', () => {
+    const { player, calls } = make('A L c4 d4'); // 1 周 48000 フレーム
+    player.pump(0, 49000); // 先読みが 2 周目の頭（48000）を越えている
+    expect(ons(calls).map((c) => c.type === 'noteOn' && c.time)).toEqual([0, 24000, 48000]);
+    player.pause(20000);
+    // 20000 より前に鳴り始めた c は持続中（再開後に鳴らし直さない）。それ以後の d と 2 周目の c は cancel して送り直す
+    expect(calls.filter((c) => c.type === 'cancel')).toEqual([{ type: 'cancel', ids: [1, 2, 3] }]);
+    player.resume(100000); // 80000 フレームずらす
+    calls.length = 0;
+    player.pump(100000, 100000 + 49000);
+    player.pump(120000, 120000 + 49000);
+    // 1 回目の pump で d（104000）と 2 周目の c（128000）、2 回目の pump で 2 周目の d（152000）。重複はない
+    expect(ons(calls).map((c) => c.type === 'noteOn' && c.time)).toEqual([104000, 128000, 152000]);
+    expect(player.loopFrame(1)).toBe(128000);
+    expect(player.loopFrame(2)).toBe(176000);
+  });
+
+  it('3 回以上の一時停止で、ずらす分が積み上がる', () => {
+    const { player, calls } = make('A c4 d4 e4');
+    player.pause(1000);
+    player.resume(2000); // +1000
+    player.pause(3000);
+    player.resume(5000); // +2000（合計 3000）
+    player.pause(6000);
+    player.resume(6500); // +500（合計 3500）
+    expect(player.endFrame).toBe(72000 + 3500);
+    player.pump(3500, 1e9);
+    expect(ons(calls).map((c) => c.type === 'noteOn' && c.time)).toEqual([3500, 27500, 51500]);
+  });
+
+  it('一時停止中の loopFrame・endFrame は、今回の停止の分を含まない（resume の後に増える）', () => {
+    const loop = make('A L c4 d4').player;
+    loop.pause(1000);
+    expect(loop.loopFrame(1)).toBe(48000);
+    loop.resume(5000);
+    expect(loop.loopFrame(1)).toBe(52000);
+    const plain = make('A c4 d4').player;
+    plain.pause(1000);
+    expect(plain.endFrame).toBe(48000);
+    plain.resume(5000);
+    expect(plain.endFrame).toBe(52000);
+  });
+
+  it('pause → stop → resume → pump で、何も送らない', () => {
+    const { player, calls } = make('A c4 d4');
+    player.pump(0, 4800);
+    player.pause(12000);
+    player.stop();
+    player.resume(60000);
+    calls.length = 0;
+    player.pump(60000, 1e9);
+    expect(calls).toEqual([]);
+  });
+
+  it('ループ終了を越えるタイが 2 万個続く曲は、解析エラーで Player を作れない', () => {
+    const song = parseMml('A t999 L r%1 c%1 E ' + '&c1'.repeat(20000));
+    expect(song.errors.length).toBeGreaterThan(0);
+    expect(song.errors[0]!.message).toContain('ループの中のノートが長すぎます');
+    const { engine } = fakeEngine();
+    expect(() => new Player(engine, song, { sampleRate: SR, startFrame: 0 })).toThrow(Error);
+  });
+
+  it('ゲートがループ 1 周の 16 倍ちょうどのノートを 16 トラックで周ごとに重ねても、溜まっている数は再生時間に比例して増えない', () => {
+    const names = 'ACDEFGHIJKLMNOP'.split('');
+    const { player } = make(['B t999 L r%2 E', ...names.map((n) => `${n} c%32`)].join('\n'));
+    let step = 0;
+    let maxSent = 0;
+    let maxPending = 0;
+    const runTo = (seconds: number) => {
+      for (; step < seconds / 0.025; step++) {
+        const now = Math.round(step * 0.025 * SR);
+        player.pump(now, now + 0.1 * SR);
+        maxSent = Math.max(maxSent, player.sentCount);
+        maxPending = Math.max(maxPending, player.pendingCount);
+      }
+    };
+    runTo(10);
+    const at10 = { sent: maxSent, pending: maxPending };
+    expect(at10.sent).toBeGreaterThan(0);
+    runTo(40);
+    // 毎周ためると 40 秒で 3 万周 × 15 トラックになる。10 秒の時点で頭打ちで、40 秒でも最大は変わらない
+    expect({ sent: maxSent, pending: maxPending }).toEqual(at10);
+  });
 });

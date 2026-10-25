@@ -44,6 +44,22 @@ describe('waveValue', () => {
       expect(waveValue(wave, 0.75)).toBeCloseTo(-1, 5);
     }
   });
+
+  it('waveValue は範囲外の引数で RangeError', () => {
+    expect(() => waveValue(32, 0)).toThrow(RangeError);
+    expect(() => waveValue(-1, 0)).toThrow(RangeError);
+    expect(() => waveValue(0, 1)).toThrow(RangeError);
+    expect(() => waveValue(0, -0.1)).toThrow(RangeError);
+    expect(() => waveValue(0, Number.NaN)).toThrow(RangeError);
+    expect(waveValue(0, 0.25)).toBeCloseTo(1, 12);
+  });
+
+  it('waveValue は wave の小数（1.5）・x の無限大・NaN も RangeError', () => {
+    expect(() => waveValue(1.5, 0)).toThrow(RangeError);
+    expect(() => waveValue(Number.NaN, 0)).toThrow(RangeError);
+    expect(() => waveValue(0, Infinity)).toThrow(RangeError);
+    expect(() => waveValue(0, -Infinity)).toThrow(RangeError);
+  });
 });
 
 describe('WAVE_TABLES', () => {

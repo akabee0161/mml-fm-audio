@@ -10,7 +10,7 @@ export class Lfo {
   }
 
   setRate(index: number): void {
-    this.increment = LFO_HZ[index] / this.sampleRate;
+    this.increment = LFO_HZ[index]! / this.sampleRate; // index は validateVoice で検査済み
   }
 
   /** 今の値（-1〜1）を返してから 1 サンプル進める */
