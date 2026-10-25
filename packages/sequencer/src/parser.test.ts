@@ -161,9 +161,10 @@ describe('トラック数の上限', () => {
   });
 
   it('31 個目の新しいトラック名の位置にエラーを 1 件出し、31 個目以降は解析しない', () => {
-    const song = parseMml([...names.map((n) => `${n} c`), 'R bd', 'B2 c', 'R bd'].join('\n'));
+    const song = parseMml([...names.map((n) => `${n} c`), 'R bd', 'B2 c', 'R bd', 'A d'].join('\n'));
     expect(song.errors).toEqual([{ line: 31, column: 1, message: 'トラックが多すぎます（30 まで）' }]);
     expect(song.tracks).toHaveLength(30);
+    expect(song.tracks[0]!.events.map((e) => e.type === 'note' && e.note)).toEqual([60, 62]); // 既存の名前の行は連結される
   });
 });
 
