@@ -278,6 +278,31 @@ describe('一時停止・再開', () => {
     expect(calls.some((c) => c.type === 'cancel')).toBe(false);
   });
 
+  it('ノートオフ未送信で、ノートオフが一時停止の時刻より前のノートは、本来の時刻でノートオフを 1 回送り（cancel しない）、再開後に重ねて送らない', () => {
+    const { player, calls } = make('A c4 r4 d4');
+    player.pump(0, 4800); // c のノートオンだけ送る（ノートオフ 24000 は先読みの外）
+    expect(ons(calls)).toHaveLength(1);
+    player.pause(30000); // c のノートオフ（24000）は 30000 より前
+    expect(noteOffs(calls)).toEqual([{ type: 'noteOff', id: 1, time: 24000 }]);
+    expect(calls.some((c) => c.type === 'cancel')).toBe(false);
+    player.resume(60000);
+    calls.length = 0;
+    player.pump(60000, 1e9);
+    // c のノートオン・ノートオフは送らない。d のノートオン（48000 + 30000）とノートオフだけ
+    expect(ons(calls).map((c) => c.type === 'noteOn' && c.note)).toEqual([62]);
+    expect(noteOffs(calls)).toHaveLength(1);
+    expect(noteOffs(calls).some((c) => c.type === 'noteOff' && c.id === 1)).toBe(false);
+  });
+
+  it('ノートオフ送り済みで一時停止の時刻より前に終わるノートは、pause で何も送らない', () => {
+    const { player, calls } = make('A c4 d4');
+    player.pump(0, 30000); // c のノートオフ（24000）まで送り済み
+    expect(noteOffs(calls)).toHaveLength(1);
+    calls.length = 0;
+    player.pause(40000);
+    expect(calls.filter((c) => c.type === 'noteOff' && c.id === 1)).toEqual([]);
+  });
+
   it('持続中のノートの bend も再開後に送らない', () => {
     const { player, calls } = make('A c8&B+50c8 d4');
     player.pump(0, 4800);

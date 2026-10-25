@@ -33,6 +33,8 @@ interface NoteState {
   /** ノートオンの時刻（曲の時刻） */
   onFrame: number;
   offFrame: number;
+  /** ノートオフを音源へ送った */
+  offSent: boolean;
 }
 
 type Action =
@@ -210,8 +212,9 @@ export class Player {
   }
 
   /**
-   * nowFrame の時点で止める。持続中のノート（ノートオンが nowFrame より前）はキーオフして再開後も鳴らし直さず、
-   * 先読みで送り済みのノート（ノートオンが nowFrame 以降）は cancel して再開後に送り直す。
+   * nowFrame の時点で止める。送り済みのノートのうち、ノートオフが nowFrame 以降のものは cancel する。
+   * ノートオンが nowFrame より前のノートは再開後も鳴らし直さず、nowFrame 以降のノートは再開後に送り直す。
+   * ノートオフが nowFrame より前で、まだ送っていないノートは、cancel せずに本来の時刻でノートオフを送る（ノートオフ送り済みのノートと同じく、その時刻まで鳴る）。
    * 一時停止中・停止後は何もしない。nowFrame が有限の数でなければ RangeError
    */
   pause(nowFrame: number): void {
@@ -223,6 +226,12 @@ export class Player {
     this.lastNowFrame = Math.max(this.lastNowFrame, songNow);
     const ids = this.cancelableIds();
     for (const n of this.sent) {
+      // ノートオフが一時停止の時刻より前で、まだ送っていないノートは、本来の時刻でノートオフを送る
+      // （cancel しない。ヒープに残るノートオフは dropped のため再開後に捨てられ、送られないままになるのを防ぐ）
+      if (n.id !== null && !n.offSent && n.offFrame < this.lastNowFrame) {
+        this.engine.noteOff(n.id, n.offFrame + this.shift);
+        n.offSent = true;
+      }
       if (n.onFrame < songNow) n.dropped = true;
       else n.id = null;
     }
@@ -308,7 +317,7 @@ export class Player {
       if (frame >= horizonFrame) return;
       cursor.index++;
       if (ev.type === 'note') {
-        const note: NoteState = { id: null, dropped: false, onFrame: frame, offFrame: this.frame(cursor.pass, ev.tick + ev.gate) };
+        const note: NoteState = { id: null, dropped: false, onFrame: frame, offFrame: this.frame(cursor.pass, ev.tick + ev.gate), offSent: false };
         cursor.last = note;
         this.queue.push({
           kind: 'on', frame, track: t, seq: this.seq++, note,
@@ -336,7 +345,10 @@ export class Player {
     }
     if (a.note.dropped || a.note.id === null) return;
     const time = a.frame + this.shift;
-    if (a.kind === 'off') this.engine.noteOff(a.note.id, time);
+    if (a.kind === 'off') {
+      this.engine.noteOff(a.note.id, time);
+      a.note.offSent = true;
+    }
     else if (a.kind === 'bend') this.engine.setPitchBend(a.note.id, a.cents, time);
     else this.engine.setVolume(a.note.id, a.gain, time);
     this.inflight.push(a);
