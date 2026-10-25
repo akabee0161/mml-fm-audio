@@ -11,10 +11,14 @@ export interface TrackSource { name: string; text: string; positions: SourcePosi
 // A〜P、A〜P に 1 以上の整数（先頭が 0 でない）、R。後ろは空白か行末
 const TRACK_NAME = /^(?:[A-P][1-9][0-9]*|[A-P]|R)(?=\s|$)/u;
 
+/** 曲のトラック数の上限（違うトラック名の数）。超えた分は解析しない */
+export const MAX_TRACKS = 30;
+
 /** 行をトラックごとに連結する。行の区切りは空白 1 文字として text に入れる。コメントを除く。CRLF は LF と同じ */
 export function splitTracks(mml: string): { tracks: TrackSource[]; errors: MmlError[] } {
   const byName = new Map<string, TrackSource>();
   const errors: MmlError[] = [];
+  let tooMany = false;
 
   mml.split(/\r?\n/).forEach((rawLine, index) => {
     const line = index + 1;
@@ -44,6 +48,12 @@ export function splitTracks(mml: string): { tracks: TrackSource[]; errors: MmlEr
     const name = match[0];
     let track = byName.get(name);
     if (!track) {
+      // 上限を超える新しいトラック名は、最初の 1 件だけ報告し、その行以降の新しいトラックは読まない
+      if (byName.size >= MAX_TRACKS) {
+        if (!tooMany) errors.push({ line, column: columns[lead]!, message: `トラックが多すぎます（${MAX_TRACKS} まで）` });
+        tooMany = true;
+        return;
+      }
       track = { name, text: '', positions: [] };
       byName.set(name, track);
     }

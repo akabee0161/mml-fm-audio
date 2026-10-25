@@ -150,6 +150,23 @@ describe('parseMml: 行とトラック', () => {
   });
 });
 
+describe('トラック数の上限', () => {
+  // A〜P、A1〜A14 の 30 個
+  const names = [...'ABCDEFGHIJKLMNOP'.split(''), ...Array.from({ length: 14 }, (_, i) => `A${i + 1}`)];
+
+  it('30 個ちょうどは通る。同じ名前の複数行は 1 つと数える', () => {
+    const song = parseMml([...names.map((n) => `${n} c`), 'A d', 'B d'].join('\n'));
+    expect(song.errors).toEqual([]);
+    expect(song.tracks).toHaveLength(30);
+  });
+
+  it('31 個目の新しいトラック名の位置にエラーを 1 件出し、31 個目以降は解析しない', () => {
+    const song = parseMml([...names.map((n) => `${n} c`), 'R bd', 'B2 c', 'R bd'].join('\n'));
+    expect(song.errors).toEqual([{ line: 31, column: 1, message: 'トラックが多すぎます（30 まで）' }]);
+    expect(song.tracks).toHaveLength(30);
+  });
+});
+
 describe('splitTracks', () => {
   it('positions は元の位置を引け、行の区切りは空白 1 文字', () => {
     const { tracks, errors } = splitTracks('A c d\nA e');
