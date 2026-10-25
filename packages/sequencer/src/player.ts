@@ -339,6 +339,8 @@ export class Player {
         return;
       }
       a.note.id = this.engine.noteOn(a.program, a.pitch, { pan: a.pan, time: a.frame + this.shift, volume: a.gain, bend: a.bend });
+      // ノートオンを送るたびに、そのノートオフは未送信（再送のとき、前の id のノートオフ送り済みを引き継がない）
+      a.note.offSent = false;
       this.sent.push(a.note);
       this.inflight.push(a);
       return;
@@ -348,8 +350,7 @@ export class Player {
     if (a.kind === 'off') {
       this.engine.noteOff(a.note.id, time);
       a.note.offSent = true;
-    }
-    else if (a.kind === 'bend') this.engine.setPitchBend(a.note.id, a.cents, time);
+    } else if (a.kind === 'bend') this.engine.setPitchBend(a.note.id, a.cents, time);
     else this.engine.setVolume(a.note.id, a.gain, time);
     this.inflight.push(a);
   }

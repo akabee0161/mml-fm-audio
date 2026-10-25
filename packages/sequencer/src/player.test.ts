@@ -303,6 +303,22 @@ describe('一時停止・再開', () => {
     expect(calls.filter((c) => c.type === 'noteOff' && c.id === 1)).toEqual([]);
   });
 
+  it('ノートオフ送り済みで再送されたノートは、ノートオンを送り直すたびにノートオフが未送信に戻り、2 回目の pause でずらした時刻のノートオフが送られる', () => {
+    const { player, calls } = make('A r4 c4 d4');
+    player.pump(0, 60000); // c のノートオン 24000・ノートオフ 48000 まで送り済み
+    expect(noteOffs(calls)).toHaveLength(1);
+    player.pause(10000); // c のノートオンは 10000 以降なので id を捨てて再送する
+    player.resume(60000); // shift = 50000
+    calls.length = 0;
+    player.pump(60000, 80000); // c のノートオン（24000 + 50000）だけ再送。ノートオフ（98000）は先読みの外
+    expect(ons(calls).map((c) => c.type === 'noteOn' && c.note)).toEqual([60]);
+    const newId = ons(calls)[0]!.type === 'noteOn' ? (ons(calls)[0] as { id: number }).id : -1;
+    expect(noteOffs(calls)).toEqual([]);
+    player.pause(100000); // 曲の時刻 50000 > c のノートオフ 48000
+    expect(noteOffs(calls)).toEqual([{ type: 'noteOff', id: newId, time: 48000 + 50000 }]);
+    expect(calls.some((c) => c.type === 'cancel')).toBe(false);
+  });
+
   it('持続中のノートの bend も再開後に送らない', () => {
     const { player, calls } = make('A c8&B+50c8 d4');
     player.pump(0, 4800);
