@@ -74,9 +74,9 @@ interface TrackContext {
   tie: { pos: number } | null;
   /** いま実行した命令が、ノートオンして作った note イベント（音符・ドラム。タイの続きは含まない）。作らなければ null */
   noteEvent: NoteEvent | null;
-  /** 今の tick で最後に積んだ volume イベントの events の添字（なければ -1）。ノートを積むと忘れる */
+  /** 最後に積んだ volume イベントの events の添字（なければ -1） */
   volumeIndex: number;
-  /** 今の tick で最後に積んだ bend イベントの events の添字（なければ -1）。ノートを積むと忘れる */
+  /** 最後に積んだ bend イベントの events の添字（なければ -1） */
   bendIndex: number;
   /** ドラムトラック（R）。ドラム名を読み、使える命令が限られる */
   drumTrack: boolean;
@@ -168,23 +168,18 @@ function note(letter: string): Command {
         pan: ctx.pan,
         bend: ctx.bend,
       };
-      pushNote(ctx, event);
+      ctx.events.push(event);
+      ctx.noteEvent = event;
       ctx.lastNote = { event, ticks, gateQ: ctx.gateQ };
     }
     ctx.tick += ticks;
   };
 }
 
-function pushNote(ctx: TrackContext, event: NoteEvent): void {
-  ctx.events.push(event);
-  ctx.noteEvent = event;
-  ctx.volumeIndex = -1;
-  ctx.bendIndex = -1;
-}
-
 /**
- * v・B のイベントを積む。同じ tick で、最後のノートより後に同じ種類のイベントがあれば、それを置き換える
- * （同じ時刻に送るコントロールは最後の値しか効かない。長さ 0 の v を大量に書かれても events が増えないようにする）。O(1)
+ * v・B のイベントを積む。同じ tick に同じ種類のイベントがあれば、それを置き換える
+ * （同じ時刻に送るコントロールは最後の値しか効かない。長さ 0 の v を大量に書かれても events が増えないようにする）。O(1)。
+ * tick の比較だけで足りる：ノートは 1 tick 以上進むので、同じ tick でノートの後に v・B は来ない
  */
 function pushControl(ctx: TrackContext, event: Extract<TrackEvent, { type: 'volume' | 'bend' }>): void {
   const key = event.type === 'volume' ? 'volumeIndex' : 'bendIndex';
@@ -211,7 +206,8 @@ function drum(name: keyof typeof DRUM_PROGRAMS): Command {
       pan: ctx.pan,
       bend: 0,
     };
-    pushNote(ctx, event);
+    ctx.events.push(event);
+    ctx.noteEvent = event;
     // ドラムはタイでつながない
     ctx.lastNote = null;
     ctx.tick += ticks;

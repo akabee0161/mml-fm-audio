@@ -272,6 +272,14 @@ describe('同じ tick の v・B をまとめた曲を送る', () => {
     ]);
   });
 
+  it('L と同じ tick の v は、周の頭では最後のノートがないので捨てる（まとめる前と同じ）', () => {
+    const { player, calls, song } = make('A c L v1 v2 c E');
+    expect(song.tracks[0]!.events.map((e) => e.type)).toEqual(['note', 'volume', 'note']);
+    player.pump(0, 4 * 48000);
+    // 最初の c（id 1）には v は無い。L の後の v2 は、周 0 では最初の c、周 1 以降は周の頭の c の前なので何も送らない
+    expect(ctls(calls)).toEqual([{ type: 'volume', id: 1, volume: volumeGain(2), time: 24000 }]);
+  });
+
   it('1 周が 2 ティックで、長さ 0 の v を 6 万個書いた曲でも、events と 1 回の pump のアクションの数が小さい', () => {
     const { player, calls, song } = make('A t999 L c%1 [[v1]250]250 c%1 E');
     expect(song.errors).toEqual([]);

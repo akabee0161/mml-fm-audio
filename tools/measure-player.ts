@@ -35,9 +35,9 @@ const longLoop = [
 ].join('\n');
 // 同じ tick に長さ 0 の v・B を大量に書いた形（events にまとめる前は 1 周 6 万個の v を作り、最初の pump に約 7 秒かかった）
 const manyControls = 'A t999 L c%1 [[v1]250]250 c%1 E';
-const manyControlsTracks = ['ABCDEFGHIJKLMNOP'.split('').map((name, i) =>
+const manyControlsTracks = 'ABCDEFGHIJKLMNOP'.split('').map((name, i) =>
   `${name} ${i === 0 ? 't999 L ' : ''}c%1 [[${i % 2 === 0 ? 'v1 B+5' : 'B-5 v2'}]125]250 c%1${i === 0 ? ' E' : ''}`,
-).join('\n')][0]!;
+).join('\n');
 const inputs: { name: string; mml: string }[] = [
   { name: '1 トラック 4 万ノート・t120', mml: 'A L [[t120 c%1]200]200' },
   { name: '16 トラック × 4 万ノート・t999', mml: manyTracks },
