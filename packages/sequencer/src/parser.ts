@@ -517,8 +517,8 @@ function mergeTempos(parsed: ParsedTrack[], errors: MmlError[]): Tempo[] {
 
 /**
  * ループの中でノートオンしたノートのゲートの上限を、ループ 1 周の長さの何倍にするか。
- * engine の MAX_VOICES（BGM の最大同時発音数）と同じ値。sequencer は engine を import しないので、ここに置く。
- * 超えた分はボイスを奪い合うだけで音に出ず、Player の送り済みのノートが再生時間に比例して増えるため
+ * 同じノートが周ごとに重なるのを 16 周分までに抑え、Player の送り済みのノートが再生時間に比例して溜まり続けないようにする、
+ * 独立した定数（音源の同時発音数とは関係づけない）
  */
 const MAX_LOOP_GATE_PERIODS = 16;
 

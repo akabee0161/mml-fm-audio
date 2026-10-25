@@ -526,7 +526,7 @@ describe('parseMml: ループの中の長いノート', () => {
     expect(errs('A c%1000\nB r%2')).toEqual([]);
   });
 
-  it('E がない曲も同じ規則（ループ終了は length）', () => {
+  it('E がない曲では、ノートが曲の終わり（ループ終了）を越えないので、規則に当たらない', () => {
     expect(errs('A L c%2\nB r%1 c%33')).toEqual([]);
   });
 
