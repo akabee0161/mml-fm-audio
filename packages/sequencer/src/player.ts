@@ -243,6 +243,7 @@ export class Player {
 
   /**
    * 一時停止した位置から続ける。以後のすべての時刻を、止めていた分だけ後ろへずらす。一時停止していなければ何もしない。
+   * 再開の時刻より前に pump しないと、送り直すノートが遅れとして捨てられるので、resume の直後に pump すること。
    * nowFrame が有限の数でない、または一時停止した時刻より前なら RangeError（状態は変えない）
    */
   resume(nowFrame: number): void {
