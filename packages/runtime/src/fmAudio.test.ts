@@ -665,6 +665,26 @@ describe('FmAudio', () => {
     expect(ds[1]!.time / SR).toBeCloseTo(3.08, 6);
   });
 
+  it('最後の tick から 50 ms 以上たって pauseBgm しても、ノートオフが未送信で一時停止の時刻より前に終わるノートは、本来の時刻でノートオフを 1 回送る（cancel しない）', () => {
+    const { audio, context, noteOns, cancels, engine } = setup();
+    audio.playBgm(audio.load('A t120 l16 c r4')); // c は 0.05〜0.175 秒。直後の pump（先読み〜0.1 秒）にはノートオンだけ入る
+    expect(noteOns).toHaveLength(1);
+    expect(engine.noteOff).not.toHaveBeenCalled();
+    context.currentTime = 0.2; // tick なし。止める時刻は 0.25 秒で、c のノートオフ（0.175 秒）より後
+    audio.pauseBgm();
+    expect(cancels).toEqual([]);
+    expect(engine.noteOff).toHaveBeenCalledTimes(1);
+    const [id, time] = vi.mocked(engine.noteOff).mock.calls[0]!;
+    expect(id).toBe(noteOns[0]!.id);
+    expect(time).toBeCloseTo(noteOns[0]!.time + 0.125 * SR, 6);
+    context.currentTime = 3;
+    audio.resumeBgm();
+    tickAt(context, 3.0);
+    tickAt(context, 3.2);
+    expect(noteOns).toHaveLength(1);
+    expect(engine.noteOff).toHaveBeenCalledTimes(1);
+  });
+
   it('一時停止中の L なし BGM は end を呼ばず、再開後に曲の終わりで呼ぶ', () => {
     const { audio, context } = setup();
     const ends = vi.fn();
