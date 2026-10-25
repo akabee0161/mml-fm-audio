@@ -652,6 +652,19 @@ describe('FmAudio', () => {
     expect(ds[1]!.time / SR).toBeCloseTo(3.08, 6);
   });
 
+  it('resumeBgm の直後（tick を待たずに）、再開後の最初のノートを送る', () => {
+    const { audio, context, noteOns } = setup();
+    audio.playBgm(audio.load('A t120 l4 c d e'));
+    tickAt(context, 0.47); // d（0.55 秒）まで送り済み
+    expect(noteOns.map((n) => n.note)).toEqual([60, 62]);
+    audio.pauseBgm(); // 止める時刻は 0.52 秒、d は 0.03 秒後
+    context.currentTime = 3;
+    audio.resumeBgm(); // d は 3.05 + 0.03 = 3.08 秒。先読み（〜3.1 秒）の中
+    const ds = noteOns.filter((n) => n.note === 62);
+    expect(ds).toHaveLength(2);
+    expect(ds[1]!.time / SR).toBeCloseTo(3.08, 6);
+  });
+
   it('一時停止中の L なし BGM は end を呼ばず、再開後に曲の終わりで呼ぶ', () => {
     const { audio, context } = setup();
     const ends = vi.fn();

@@ -270,6 +270,8 @@ export class FmAudio {
     const bgm = this.bgm;
     if (!bgm || !bgm.player.paused) return;
     bgm.player.resume(this.safeFrame());
+    // 最初の tick が遅れても、再開後の最初のノートが消えないように
+    this.pumpNow(bgm.player);
     this.ensureTimer();
   }
 
