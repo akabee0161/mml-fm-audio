@@ -254,7 +254,10 @@ export class FmAudio {
     this.fadeLowered = true;
   }
 
-  /** BGM を一時停止する（持続中のノートをキーオフし、曲の位置を止める）。フェード中なら、フェードを終えたものとしてすぐ止める */
+  /**
+   * BGM を一時停止する（曲の位置を止める）。止める時刻は currentTime + 0.05 秒。
+   * 0.05 秒より後まで続く持続中のノートはキーオフし、0.05 秒の中で終わるノートはノートオフの時刻まで鳴らす。フェード中なら、フェードを終えたものとしてすぐ止める
+   */
   pauseBgm(): void {
     const bgm = this.bgm;
     if (!bgm || bgm.player.paused) return;
@@ -388,7 +391,8 @@ export class FmAudio {
 
   /**
    * 一時停止・再開の時刻（フレーム）。currentTime より START_MARGIN 先。
-   * すでに音源へ送り済みで、この余裕の中で鳴り始めるノートは持続中として扱う（再開後に鳴らし直さない）
+   * すでに音源へ送り済みで、この余裕の中で鳴り始めるノートは持続中として扱う（再開後に鳴らし直さない）。
+   * この余裕の中で終わるノートは、キーオフせずノートオフの時刻まで鳴る
    */
   private safeFrame(): number {
     return (this.ctx.currentTime + START_MARGIN_SECONDS) * this.ctx.sampleRate;
