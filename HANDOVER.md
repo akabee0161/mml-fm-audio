@@ -29,14 +29,22 @@
 
 ## 次にやること
 
-1. M4 の最終レビューの指摘を直した分の確認（コントローラー）。
-2. PR を出す（依頼者の確認の後。push・PR は実行の直前に確認する）。
-3. 公開後に、依頼者が設計書 §1.1 の確認 1〜8 を行う。
+1. M4 の PR（`feat/m4-runtime`）で、最終修正の再レビュー（Opus）が見つけた不具合を直す。マージ前に直す。
+   - 最後の pump から 50 ms 以上たって `pauseBgm` を呼ぶと、ノートが鳴りっぱなしになる。送り済みのノートのうち、ノートオフをまだ音源へ送っていないもの（ノートオフの時刻が、最後の pump の先読みの終わりと一時停止の時刻の間）が、`pause` で cancel されず `dropped` になり、ノートオフが送られないため。最終レビューの修正で一時停止の時刻を `currentTime + 0.05` 秒にしたため、修正前（100 ms 以上）より起きやすくなった。直し方の案：`pause` で、ノートオフの action がヒープに残っている送り済みのノートも cancel の対象にする。テスト：先読みの終わりを越え、一時停止の時刻より前にノートオフのあるノートを作って pause し、cancel にその ID が入る。
+   - `resumeBgm` の直後に pump しないため、再開の直後に 50 ms 以上ふさがると、再開後の最初のノートが落ちる（`playBgm`・`playSe` と同じく、直後に 1 回 pump する）。
+   - `docs/api.md` の一時停止の文：0.05 秒の中で始まって終わる短いノートは、キーオフされず最後まで鳴る（二重にはならない）。事実に合わせる。
+2. 依頼者に、まだ答えをもらっていない確認事項（2026-10-24 に出した）：
+   - 病的な入力（上の「病的な入力」）で `sent` とヒープが再生時間に比例して増える件を、直さずに `ISSUES.md` に書くだけでよいか。
+   - 同梱の音色集から `unassigned.json` を外したままでよいか。
+   - 直していない Minor 3 件（鳴っていない側のボイスの組もバッファを毎ブロック 0 で埋める、ノートのない曲で `finished` が少し遅れる、試聴ページの `loop`・`end` の回数の表示を自動で確かめていない）を `ISSUES.md` に書くか、捨てるか。
+3. 依頼者が CodeRabbit のレビューを始めたら、指摘を確かめてから直し、各スレッドに返信する。
+4. マージ・公開の後に、依頼者が設計書 §1.1 の確認 1〜8 を行う。
 4. M5（conv：SMF → MML 変換）。設計 → 計画 → 実装の順（brainstorming から）。
 
-## M4 の状態（2026-10-24）
+## M4 の状態（2026-10-25）
 
-- ブランチ `feat/m4-runtime` で全タスク（Task 1〜9）を実装し、最終レビューの指摘を直した。未 push。
+- ブランチ `feat/m4-runtime` で全タスク（Task 1〜9）を実装し、最終レビューの指摘を直した。push して PR を出した（依頼者の指示）。最終修正の再レビューで見つかった不具合（「次にやること」の 1）は、次のセッションで直す。
+- subagent-driven-development の台帳（各タスクの Minor・判断・実測）は `.superpowers/sdd/2026-10-23-m4-runtime/progress.md`（git の管理外）。最終修正の指示は同じフォルダの `final-fixes.md`、修正の報告は `final-fixes-report.md`。
 - 設計：`docs/superpowers/specs/2026-10-23-m4-runtime-design.md`、計画：`docs/superpowers/plans/2026-10-23-m4-runtime.md`。
 - API の文書は `docs/api.md`（新規）。`docs/spec.md` は v0.5 に更新した（効果音は BGM と別の 4 ボイス、エラーのある曲は鳴らさない、`playBgm` の `loop` と `playSe` の `priority` は作らない）。
 - 作ったもの：`packages/runtime`（`FmAudio`）、音源の BGM 用・効果音用のボイス分け、`Player` の一時停止・再開と鳴る時刻の通知、`ISSUES.md` #11 の修正、試聴ページの `FmAudio` 化、`npm run export:runtime`、`npm run measure:player`、`npm run check:browser` の別プロジェクトでの確認（`tools/check-consumer.ts`）。
