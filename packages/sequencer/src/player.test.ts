@@ -474,23 +474,25 @@ describe('一時停止・再開', () => {
     expect(() => new Player(engine, song, { sampleRate: SR, startFrame: 0 })).toThrow(Error);
   });
 
-  it('ゲートがループ 1 周の 16 倍ちょうどのノートを 16 トラックで周ごとに重ねても、鳴っているノートは再生時間に比例して増えない', () => {
+  it('ゲートがループ 1 周の 16 倍ちょうどのノートを 16 トラックで周ごとに重ねても、溜まっている数は再生時間に比例して増えない', () => {
     const names = 'ACDEFGHIJKLMNOP'.split('');
-    const { player, calls } = make(['B t999 L r%2 E', ...names.map((n) => `${n} c%32`)].join('\n'));
-    const aliveAt = (seconds: number) => {
-      for (let i = 0; i < seconds / 0.025; i++) {
-        const now = Math.round(i * 0.025 * SR);
+    const { player } = make(['B t999 L r%2 E', ...names.map((n) => `${n} c%32`)].join('\n'));
+    let step = 0;
+    let maxSent = 0;
+    let maxPending = 0;
+    const runTo = (seconds: number) => {
+      for (; step < seconds / 0.025; step++) {
+        const now = Math.round(step * 0.025 * SR);
         player.pump(now, now + 0.1 * SR);
+        maxSent = Math.max(maxSent, player.sentCount);
+        maxPending = Math.max(maxPending, player.pendingCount);
       }
-      return player;
     };
-    aliveAt(10);
-    const alive10 = new Set<number>();
-    const before = calls.length;
-    player.stop();
-    for (const c of calls.slice(before)) if (c.type === 'cancel') for (const id of c.ids) alive10.add(id);
-    // 15 トラック × （先読み 0.1 秒の分 = 80 周 + 重なる 16 個）。10 秒で 8000 周回っていても（毎周送ると 12 万個）増えない
-    expect(alive10.size).toBeGreaterThan(0);
-    expect(alive10.size).toBeLessThanOrEqual(15 * 100);
+    runTo(10);
+    const at10 = { sent: maxSent, pending: maxPending };
+    expect(at10.sent).toBeGreaterThan(0);
+    runTo(40);
+    // 毎周ためると 40 秒で 3 万周 × 15 トラックになる。10 秒の時点で頭打ちで、40 秒でも最大は変わらない
+    expect({ sent: maxSent, pending: maxPending }).toEqual(at10);
   });
 });

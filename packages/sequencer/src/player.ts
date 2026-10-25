@@ -279,6 +279,11 @@ export class Player {
     return this.queue.size;
   }
 
+  /** テスト用。音源へ送って、ノートオフがまだ過ぎていないノートの数（pump が捨てる前のものを含む） */
+  get sentCount(): number {
+    return this.sent.length;
+  }
+
   private cancelableIds(): number[] {
     return this.sent
       .filter((n) => n.id !== null && n.offFrame >= this.lastNowFrame)

@@ -20,6 +20,14 @@ const manyTracks = 'ABCDEFGHIJKLMNOP'.split('').map((name, i) => `${name} ${i ==
 // 残りの 15 トラックは、1 周の最後のノートを 16 倍ちょうどにして、周ごとに重ねる。
 const others = 'ACDEFGHIJKLMNOP'.split('');
 const shortLoop = ['B t999 L r%2 E', ...others.map((name) => `${name} c%32`)].join('\n');
+// 周を短く（3001 ティック = t999 で約 1.9 秒）して、60 秒の中で 16 周分の重なり（約 30 秒）が飽和するようにする。
+// 1 周の中の短いノートは周のティック数が上限なので、events の上限近くとは両立しない（下の最後の入力で別に測る）
+const midPeriod = 3001;
+const midLoop = [
+  `B t999 L r%${midPeriod} E`,
+  ...others.map((name) => `${name} [[c%1]50]60 c%${16 * midPeriod}`),
+].join('\n');
+// events の上限近く（4 万ノート）。周は約 25 秒でき、重なりは 60 秒の中で 2 周ほど（長いノートの重なりは飽和しない）
 const longPeriod = 200 * 200 + 1;
 const longLoop = [
   `B t999 L r%${longPeriod} E`,
@@ -29,16 +37,17 @@ const inputs: { name: string; mml: string }[] = [
   { name: '1 トラック 4 万ノート・t120', mml: 'A L [[t120 c%1]200]200' },
   { name: '16 トラック × 4 万ノート・t999', mml: manyTracks },
   { name: '上限：ループ 1 周 2 ティック・15 トラックの 16 倍ちょうどのノート', mml: shortLoop },
-  { name: '上限：ループ 1 周 4 万ティック・15 トラックの短いノート 4 万個＋16 倍ちょうどのノート', mml: longLoop },
+  { name: '上限：ループ 1 周 3001 ティック・15 トラックの短いノート 3000 個＋16 倍ちょうどのノート', mml: midLoop },
+  { name: '上限：ループ 1 周 4 万 1 ティック・15 トラックの短いノート 4 万個＋16 倍ちょうどのノート', mml: longLoop },
   { name: 'demo/songs/m3-demo.mml', mml: readFileSync(new URL('../demo/songs/m3-demo.mml', import.meta.url), 'utf8') },
 ];
 
-let sentCount = 0;
+let sentMessages = 0;
 const engine: EngineLike = {
-  noteOn() { sentCount++; return sentCount; },
-  noteOff() { sentCount++; },
-  setPitchBend() { sentCount++; },
-  setVolume() { sentCount++; },
+  noteOn() { sentMessages++; return sentMessages; },
+  noteOff() { sentMessages++; },
+  setPitchBend() { sentMessages++; },
+  setVolume() { sentMessages++; },
   cancel() {},
 };
 
@@ -56,16 +65,20 @@ for (const { name, mml } of inputs) {
   let maxMs = 0;
   let maxSent = 0;
   let totalSent = 0;
+  let maxHeld = 0;
+  let maxPending = 0;
   const steps = Math.round(seconds / PUMP_INTERVAL_SECONDS);
   for (let i = 0; i < steps; i++) {
     const now = Math.round(i * PUMP_INTERVAL_SECONDS * SAMPLE_RATE);
-    sentCount = 0;
+    sentMessages = 0;
     const t = performance.now();
     player.pump(now, now + LOOKAHEAD_SECONDS * SAMPLE_RATE);
     const ms = performance.now() - t;
     totalMs += ms;
-    totalSent += sentCount;
-    if (ms > maxMs) { maxMs = ms; maxSent = sentCount; }
+    totalSent += sentMessages;
+    if (ms > maxMs) { maxMs = ms; maxSent = sentMessages; }
+    maxHeld = Math.max(maxHeld, player.sentCount);
+    maxPending = Math.max(maxPending, player.pendingCount);
   }
   const ts = performance.now();
   player.stop();
@@ -77,7 +90,9 @@ for (const { name, mml } of inputs) {
     'pump 合計(ms)': totalMs.toFixed(1),
     'pump 最大(ms)': maxMs.toFixed(2),
     '最大の pump のイベント数': String(maxSent),
-    'sent 合計': String(totalSent),
+    '送った数(累計)': String(totalSent),
+    'sent の溜まり(最大)': String(maxHeld),
+    'pendingCount(最大)': String(maxPending),
     'stop(ms)': stopMs.toFixed(2),
   });
 }
