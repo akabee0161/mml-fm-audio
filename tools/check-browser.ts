@@ -161,6 +161,40 @@ try {
   const afterError = await maxPeak(1000);
   check(afterError < 0.001, `エラーのある MML は鳴らない（最大振幅 ${afterError.toFixed(4)}）`);
 
+  // loop・end の回数の表示：速くて短いループの MML は「ループ 1 回」以上になり、L のない短い MML は「終了 1 回」になる。
+  // 後続の確認は #mml を自分で fill するので、ここで書き換えてよい
+  const waitEvents = (pattern: RegExp) =>
+    page.waitForFunction(
+      (source) => new RegExp(source).test(document.getElementById('bgm-events')!.textContent ?? ''),
+      pattern.source,
+      { timeout: 4000 },
+    );
+  await page.fill('#mml', 'A t240 L o4 l16 c e');
+  await page.click('#mml-play');
+  let looped = true;
+  try {
+    await waitEvents(/ループ [1-9]\d* 回/);
+  } catch {
+    looped = false;
+  }
+  const loopText = await page.textContent('#bgm-events');
+  check(looped, `L のある短い MML を鳴らすと、ループの回数が 1 回以上になる（${loopText}）`);
+  await page.click('#mml-stop');
+  await waitSilent();
+
+  await page.fill('#mml', 'A t240 o4 l16 c e');
+  await page.click('#mml-play');
+  let ended = true;
+  try {
+    await waitEvents(/終了 1 回/);
+  } catch {
+    ended = false;
+  }
+  const endText = await page.textContent('#bgm-events');
+  check(ended, `L のない短い MML を鳴らすと、終了が 1 回になる（${endText}）`);
+  await page.click('#mml-stop');
+  await waitSilent();
+
   // ここから FmAudio の確認：効果音・音量・フェード・一時停止。BGM は小さめの音（v6）にして、効果音との差が出るようにする
   await page.fill('#mml', 'A @80 v6 o4 l8 L [c e g e]8');
   const pressSe = (name: string) => page.click(`#se-buttons .se[data-se="${name}"]`);
