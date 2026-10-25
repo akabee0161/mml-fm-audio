@@ -16,10 +16,20 @@ if (!Number.isFinite(seconds) || seconds <= 0) {
 }
 
 const manyTracks = 'ABCDEFGHIJKLMNOP'.split('').map((name, i) => `${name} ${i === 0 ? 't999 L ' : ''}[[c%1]200]200`).join('\n');
+// ループの中でノートオンしたノートのゲートは、ループ 1 周の 16 倍まで（超えると解析エラー）。B がループ（L・E）を決め、
+// 残りの 15 トラックは、1 周の最後のノートを 16 倍ちょうどにして、周ごとに重ねる。
+const others = 'ACDEFGHIJKLMNOP'.split('');
+const shortLoop = ['B t999 L r%2 E', ...others.map((name) => `${name} c%32`)].join('\n');
+const longPeriod = 200 * 200 + 1;
+const longLoop = [
+  `B t999 L r%${longPeriod} E`,
+  ...others.map((name) => `${name} [[c%1]200]200 c%${16 * longPeriod}`),
+].join('\n');
 const inputs: { name: string; mml: string }[] = [
   { name: '1 トラック 4 万ノート・t120', mml: 'A L [[t120 c%1]200]200' },
   { name: '16 トラック × 4 万ノート・t999', mml: manyTracks },
-  { name: '病的：ループ終了を越えるタイ 2 万個', mml: 'A t999 L r%1 c%1 E ' + '&c1'.repeat(20000) },
+  { name: '上限：ループ 1 周 2 ティック・15 トラックの 16 倍ちょうどのノート', mml: shortLoop },
+  { name: '上限：ループ 1 周 4 万ティック・15 トラックの短いノート 4 万個＋16 倍ちょうどのノート', mml: longLoop },
   { name: 'demo/songs/m3-demo.mml', mml: readFileSync(new URL('../demo/songs/m3-demo.mml', import.meta.url), 'utf8') },
 ];
 

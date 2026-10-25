@@ -495,6 +495,51 @@ describe('parseMml: ループ L・E', () => {
   });
 });
 
+describe('parseMml: ループの中の長いノート', () => {
+  const errs = (mml: string) => parseMml(mml).errors.map((e) => [e.line, e.column]);
+  // B が 2 ティックのループ（L r%2 E）を決め、A が長いノートを書く。上限は 2 × 16 = 32 ティック
+  const loop = 'B L r%2 E\n';
+
+  it('ゲートがループ 1 周の 16 倍ちょうどなら通り、超えるとノートの書き始めを指すエラー', () => {
+    expect(errs(`${loop}A c%32`)).toEqual([]);
+    const song = parseMml(`${loop}A r%1 c%33`);
+    expect(song.errors).toHaveLength(1);
+    expect(song.errors[0]).toMatchObject({ line: 2, column: 7 });
+    expect(song.errors[0]!.message).toContain('ループの中のノートが長すぎます');
+  });
+
+  it('タイでつないだノートは、タイ全体のゲートで数え、エラーは最初の音符を指す', () => {
+    expect(errs(`${loop}A c%20&c%12`)).toEqual([]);
+    expect(errs(`${loop}A c%20&c%13`)).toEqual([[2, 3]]);
+  });
+
+  it('q を掛けたゲートで数える', () => {
+    expect(errs(`${loop}A q4 c%64`)).toEqual([]);
+    expect(errs(`${loop}A q4 c%66`)).toEqual([[2, 6]]);
+  });
+
+  it('L の前でノートオンしたノートは、長くても通る', () => {
+    expect(errs('A c%1000 L r%2 E')).toEqual([]);
+  });
+
+  it('L のない曲は、長くても通る', () => {
+    expect(errs('A c%1000\nB r%2')).toEqual([]);
+  });
+
+  it('E がない曲も同じ規則（ループ終了は length）', () => {
+    expect(errs('A L c%2\nB r%1 c%33')).toEqual([]);
+  });
+
+  it('複数のトラックのエラーを、位置の順に全部出す', () => {
+    expect(errs(`${loop}A c%33\nC r%1 c%40`)).toEqual([[2, 3], [3, 7]]);
+  });
+
+  it('ループ 1 周の長さが 0 のときは、既存のエラーだけでゼロ除算などは起きない', () => {
+    expect(errs('A L E c%1000')).toEqual([[1, 5]]);
+    expect(errs('A c%1000 L')).toEqual([[1, 10]]);
+  });
+});
+
 describe('parseMml: ドラムトラック R', () => {
   const drumEvents = (mml: string) => parseMml(mml).tracks[0].events;
 

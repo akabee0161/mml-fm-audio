@@ -515,6 +515,44 @@ function mergeTempos(parsed: ParsedTrack[], errors: MmlError[]): Tempo[] {
   return tempos;
 }
 
+/**
+ * ループの中でノートオンしたノートのゲートの上限を、ループ 1 周の長さの何倍にするか。
+ * engine の MAX_VOICES（BGM の最大同時発音数）と同じ値。sequencer は engine を import しないので、ここに置く。
+ * 超えた分はボイスを奪い合うだけで音に出ず、Player の送り済みのノートが再生時間に比例して増えるため
+ */
+const MAX_LOOP_GATE_PERIODS = 16;
+
+/**
+ * ループの中（tick が loopStart 以上 loopEnd 未満）でノートオンしたノートの gate が、1 周の長さの
+ * MAX_LOOP_GATE_PERIODS 倍を超えていたらエラーにする（ちょうどは通る）。エラーはそのノートの書き始めを指す。
+ * 1 周の長さが 0 以下のとき（loopStart >= loopEnd）は、resolveLoop が報告済みなので何もしない
+ */
+function checkLongLoopNotes(
+  tracks: Track[],
+  traces: CommandTrace[][],
+  loop: { loopStart: number | null; loopEnd: number },
+  errors: MmlError[],
+): void {
+  const { loopStart, loopEnd } = loop;
+  if (loopStart === null || loopEnd <= loopStart) return;
+  const maxGate = (loopEnd - loopStart) * MAX_LOOP_GATE_PERIODS;
+  tracks.forEach((track, t) => {
+    // ノートオンした命令ごとに events へ note が 1 つ入る。同じ順なので、添字で書き始めの位置を引く
+    const noteOns = traces[t]!.filter((c) => c.noteOn);
+    const reported = new Set<string>();
+    let n = 0;
+    for (const ev of track.events) {
+      if (ev.type !== 'note') continue;
+      const trace = noteOns[n++];
+      if (!trace || ev.tick < loopStart || ev.tick >= loopEnd || ev.gate <= maxGate) continue;
+      const key = `${trace.position.line}:${trace.position.column}`;
+      if (reported.has(key)) continue;
+      reported.add(key);
+      reportAt(errors, trace.position, `ループの中のノートが長すぎます（ループ 1 周の ${MAX_LOOP_GATE_PERIODS} 倍を超えて持続します）`);
+    }
+  });
+}
+
 /** E より後に書くとエラーになる命令（音符はノートオンだけ。タイの続きと休符は書ける） */
 const FORBIDDEN_AFTER_LOOP_END = new Set(['B', 'v', 't', '@', 'p', 'q', 'o', '<', '>', 'l']);
 
@@ -586,6 +624,7 @@ export function analyzeMml(mml: string): { song: Song; traces: CommandTrace[][] 
   const tempos = mergeTempos(parsed, errors);
   const length = tracks.reduce((max, track) => Math.max(max, track.length), 0);
   const loop = resolveLoop(parsed.map((p) => p.trace), length, errors);
+  checkLongLoopNotes(tracks, parsed.map((p) => p.trace), loop, errors);
   errors.sort((x, y) => x.line - y.line || x.column - y.column);
   return {
     song: { tracks, tempos, length, loopStart: loop.loopStart, loopEnd: loop.loopEnd, errors },
