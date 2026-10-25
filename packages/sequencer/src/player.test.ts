@@ -260,6 +260,40 @@ describe('Player', () => {
   });
 });
 
+describe('同じ tick の v・B をまとめた曲を送る', () => {
+  const ctls = (calls: Call[]) => calls.filter((c) => c.type === 'volume' || c.type === 'bend');
+
+  it('同じ tick の v は最後の値だけを、最後にノートオンしたノートへ 1 回送る', () => {
+    const { player, calls } = make('A c v1 v2 v3 B+10 B+20 c');
+    player.pump(0, 1e9);
+    expect(ctls(calls)).toEqual([
+      { type: 'volume', id: 1, volume: volumeGain(3), time: 24000 },
+      { type: 'bend', id: 1, cents: 20, time: 24000 },
+    ]);
+  });
+
+  it('1 周が 2 ティックで、長さ 0 の v を 6 万個書いた曲でも、events と 1 回の pump のアクションの数が小さい', () => {
+    const { player, calls, song } = make('A t999 L c%1 [[v1]250]250 c%1 E');
+    expect(song.errors).toEqual([]);
+    expect(song.tracks[0]!.events).toHaveLength(3);
+    player.pump(0, 0.1 * SR); // 先読み 0.1 秒に約 80 周入る
+    expect(calls.length).toBeLessThan(1000);
+    expect(player.pendingCount).toBeLessThan(10);
+  });
+
+  it('16 トラックで v と B を混ぜた同じ形でも、数が小さい', () => {
+    const names = 'ABCDEFGHIJKLMNOP'.split('');
+    const mml = names
+      .map((n, i) => `${n} ${i === 0 ? 't999 L ' : ''}c%1 [[${i % 2 === 0 ? 'v1 B+5' : 'B-5 v2'}]125]250 c%1${i === 0 ? ' E' : ''}`)
+      .join('\n');
+    const { player, calls, song } = make(mml);
+    for (const t of song.tracks) expect(t.events).toHaveLength(4);
+    player.pump(0, 0.1 * SR);
+    expect(calls.length).toBeLessThan(20000);
+    expect(player.pendingCount).toBeLessThan(200);
+  });
+});
+
 describe('一時停止・再開', () => {
   const noteOffs = (calls: Call[]) => calls.filter((c) => c.type === 'noteOff');
 

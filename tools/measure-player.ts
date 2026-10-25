@@ -33,12 +33,19 @@ const longLoop = [
   `B t999 L r%${longPeriod} E`,
   ...others.map((name) => `${name} [[c%1]200]200 c%${16 * longPeriod}`),
 ].join('\n');
+// 同じ tick に長さ 0 の v・B を大量に書いた形（events にまとめる前は 1 周 6 万個の v を作り、最初の pump に約 7 秒かかった）
+const manyControls = 'A t999 L c%1 [[v1]250]250 c%1 E';
+const manyControlsTracks = ['ABCDEFGHIJKLMNOP'.split('').map((name, i) =>
+  `${name} ${i === 0 ? 't999 L ' : ''}c%1 [[${i % 2 === 0 ? 'v1 B+5' : 'B-5 v2'}]125]250 c%1${i === 0 ? ' E' : ''}`,
+).join('\n')][0]!;
 const inputs: { name: string; mml: string }[] = [
   { name: '1 トラック 4 万ノート・t120', mml: 'A L [[t120 c%1]200]200' },
   { name: '16 トラック × 4 万ノート・t999', mml: manyTracks },
   { name: '上限：ループ 1 周 2 ティック・15 トラックの 16 倍ちょうどのノート', mml: shortLoop },
   { name: '上限：ループ 1 周 3001 ティック・15 トラックの短いノート 3000 個＋16 倍ちょうどのノート', mml: midLoop },
   { name: '上限：ループ 1 周 4 万 1 ティック・15 トラックの短いノート 4 万個＋16 倍ちょうどのノート', mml: longLoop },
+  { name: '同じ tick の v を 6 万個（1 周 2 ティック）', mml: manyControls },
+  { name: '16 トラックで同じ tick に v・B を混ぜて 6 万個ずつ（1 周 2 ティック）', mml: manyControlsTracks },
   { name: 'demo/songs/m3-demo.mml', mml: readFileSync(new URL('../demo/songs/m3-demo.mml', import.meta.url), 'utf8') },
 ];
 

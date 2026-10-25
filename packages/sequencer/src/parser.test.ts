@@ -540,6 +540,48 @@ describe('parseMml: ループの中の長いノート', () => {
   });
 });
 
+describe('parseMml: 同じ tick の v・B は最後の 1 つにまとめる', () => {
+  const ctl = (mml: string, track = 0) =>
+    parseMml(mml).tracks[track]!.events.map((e) => (e.type === 'volume' ? `v${e.volume}@${e.tick}` : e.type === 'bend' ? `B${e.cents}@${e.tick}` : `n@${e.tick}`));
+
+  it('同じ tick の v は最後の 1 つだけ残る', () => {
+    expect(ctl('A c v1 v2 v3 c')).toEqual(['n@0', 'v3@96', 'n@96']);
+  });
+
+  it('同じ tick の B も最後の 1 つだけ残る', () => {
+    expect(ctl('A c B+10 B+20 B-30 c')).toEqual(['n@0', 'B-30@96', 'n@96']);
+  });
+
+  it('v B v B が交互でも、それぞれ最後の 1 つにまとまる', () => {
+    expect(ctl('A c v1 B+1 v2 B+2 c')).toEqual(['n@0', 'v2@96', 'B2@96', 'n@96']);
+  });
+
+  it('tick が違えばまとめない', () => {
+    expect(ctl('A c v1 r4 v2 c')).toEqual(['n@0', 'v1@96', 'v2@192', 'n@192']);
+  });
+
+  it('ノートの前後ではまとめない（ノートが tick を進める）', () => {
+    expect(ctl('A v1 c v2 c')).toEqual(['v1@0', 'n@0', 'v2@96', 'n@96']);
+  });
+
+  it('[ ] の繰り返しで同じ tick に並んでも 1 つ', () => {
+    const song = parseMml('A c [[v1]250]250 c');
+    expect(song.errors).toEqual([]);
+    expect(ctl('A c [[v1]250]250 c')).toEqual(['n@0', 'v1@96', 'n@96']);
+  });
+
+  it('L の前後の v：tick 0 の v5 L v6 は v6 だけ残る', () => {
+    const song = parseMml('A v5 L v6 c');
+    expect(ctl('A v5 L v6 c')).toEqual(['v6@0', 'n@0']);
+    expect(song.loopStart).toBe(0);
+  });
+
+  it('エラーの命令は残さず、ドラムトラックの v は events に入れない', () => {
+    expect(ctl('A c v1 v99 c')).toEqual(['n@0', 'v1@96', 'n@96']);
+    expect(ctl('R bd v1 v2 bd')).toEqual(['n@0', 'n@96']);
+  });
+});
+
 describe('parseMml: ドラムトラック R', () => {
   const drumEvents = (mml: string) => parseMml(mml).tracks[0].events;
 
