@@ -276,7 +276,7 @@ describe('同じ tick の v・B をまとめた曲を送る', () => {
     const { player, calls, song } = make('A c L v1 v2 c E');
     expect(song.tracks[0]!.events.map((e) => e.type)).toEqual(['note', 'volume', 'note']);
     player.pump(0, 4 * 48000);
-    // 最初の c（id 1）には v は無い。L の後の v2 は、周 0 では最初の c、周 1 以降は周の頭の c の前なので何も送らない
+    // 最初の c の前には v は無い。L の後の v2 は、周 0 では最初の c（id 1）に効き、周 1 以降は周の頭で最後のノートがないので捨てる
     expect(ctls(calls)).toEqual([{ type: 'volume', id: 1, volume: volumeGain(2), time: 24000 }]);
   });
 

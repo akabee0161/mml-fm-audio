@@ -13,7 +13,7 @@ export type TrackEvent =
   | { type: 'bend'; tick: number; cents: number }
   | { type: 'volume'; tick: number; volume: number };
 
-/** events は tick の順、length はティック */
+/** events は tick の順（同じ tick の volume・bend は、それぞれ最後の 1 つだけ）、length はティック */
 export interface Track { name: string; events: TrackEvent[]; length: number }
 
 export interface Tempo { tick: number; bpm: number }
