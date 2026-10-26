@@ -85,6 +85,38 @@ describe('convertSmf', () => {
     expect(report.loop.fromMarkers).toBe(false);
   });
 
+  it('マーカーがない曲で、最後のドラムの打撃が小節線ちょうどにあっても、その打撃を含む小節の終わりまでループする', () => {
+    // 4/4 の 1 小節は 4 * Q。打撃は 2 小節目の頭 (4 * Q) にある
+    const { mml, report } = convert([on(0, 60), off(4 * Q, 60), on(4 * Q, 36, 9), off(4 * Q + 30, 36, 9)]);
+    const song = parseMml(mml);
+    expect(song.errors).toEqual([]);
+    expect(song.loopEnd).toBe(768);
+    expect(report.loop).toEqual({ start: 0, end: 768, fromMarkers: false });
+  });
+
+  it('長い行は同名の行に折り返して書かれ、parseMml がエラーなしで読める', () => {
+    const events: SmfEvent[] = [];
+    for (let i = 0; i < 200; i++) events.push(on(i * Q, 60 + (i % 12)), off(i * Q + Q / 2, 60 + (i % 12)));
+    const { mml } = convert(events);
+    expect(mml.split('\n').filter((l) => l.startsWith('A ')).length).toBeGreaterThan(1);
+    const song = parseMml(mml);
+    expect(song.errors).toEqual([]);
+    expect(notesOf(mml, 'A')).toHaveLength(200);
+  });
+
+  it('loopend を越えて続くノートがあっても parseMml が読め、loopEnd が保たれる', () => {
+    const events: SmfEvent[] = [
+      on(0, 60), off(3 * Q, 60),
+      { kind: 'marker', tick: 0, text: 'loop' },
+      { kind: 'marker', tick: 2 * Q, text: 'loopend' },
+    ];
+    const { mml } = convert(events);
+    const song = parseMml(mml);
+    expect(song.errors).toEqual([]);
+    expect(song.loopStart).toBe(0);
+    expect(song.loopEnd).toBe(192);
+  });
+
   it('警告は「小節 拍：」付きの文字列で、tick の順', () => {
     const { warnings } = convert([on(0, 60), off(Q, 60), on(Q, 27, 9), off(2 * Q, 27, 9), on(0, 36, 9), off(Q, 36, 9)]);
     expect(warnings).toEqual(['1 小節 2 拍：ドラムのノート 27 は割り当てがないため捨てます（1 件）']);
