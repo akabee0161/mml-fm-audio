@@ -3,6 +3,7 @@
 import { readFileSync, writeFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { parseArgs } from 'node:util';
+import { TICKS_PER_QUARTER } from '../../sequencer/src/index.ts';
 import { ConvError, convertSmf, QUANTIZE_UNITS } from './index.ts';
 import type { ConvReport, QuantizeUnit } from './index.ts';
 
@@ -21,7 +22,7 @@ function reportLines(report: ConvReport): string[] {
   lines.push('チャンネルとトラック名：');
   for (const { channel, names } of report.perChannel) lines.push(`  チャンネル ${channel + 1}：${names.join('、')}`);
   const { start, end, fromMarkers } = report.loop;
-  lines.push(`ループ：tick ${start}〜${end}（四分音符 = 96）、${fromMarkers ? 'マーカーから' : 'マーカーがないので曲全体'}`);
+  lines.push(`ループ：tick ${start}〜${end}（四分音符 = ${TICKS_PER_QUARTER}）、${fromMarkers ? 'マーカーから' : 'マーカーがないので曲全体'}`);
   return lines;
 }
 

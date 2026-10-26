@@ -35,10 +35,16 @@ function run(args: string[]) {
 
 describe('runCli', () => {
   it('-o で書き、警告は stderr に出る', () => {
-    writeFileSync(join(work, 'in.mid'), smfBytes());
+    // 割り当てのないドラムのノート 27 で警告が出る
+    const drum: SmfEvent[] = [
+      { kind: 'noteOn', tick: 0, channel: 9, note: 27, velocity: 100 },
+      { kind: 'noteOff', tick: 10, channel: 9, note: 27 },
+    ];
+    writeFileSync(join(work, 'in.mid'), smfBytes(drum));
     const r = run(['in.mid', '-o', 'out.mml']);
     expect(r.code).toBe(0);
     expect(r.out).toBe('');
+    expect(r.err).toBe('1 小節 1 拍：ドラムのノート 27 は割り当てがないため捨てます（1 件）\n');
     expect(parseMml(readFileSync(join(work, 'out.mml'), 'utf8')).errors).toEqual([]);
   });
 
@@ -82,6 +88,14 @@ describe('runCli', () => {
 
   it('引数の誤りのときは使い方を出す', () => {
     expect(run([]).err).toContain('使い方：');
+  });
+
+  it('出力先のフォルダがないときは「出力ファイルを書けません」で失敗する', () => {
+    writeFileSync(join(work, 'in.mid'), smfBytes());
+    const r = run(['in.mid', '-o', 'no-such-dir/out.mml']);
+    expect(r.code).toBe(1);
+    expect(r.err).toContain('出力ファイルを書けません');
+    expect(r.err).toContain('no-such-dir');
   });
 
   it('ConvError のときは 0 以外で、出力ファイルを作らない', () => {
