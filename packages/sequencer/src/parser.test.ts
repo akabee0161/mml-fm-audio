@@ -202,9 +202,9 @@ describe('splitTracks', () => {
     const song = parseMml('R bd8 ch8\nR1 ch8 ch8');
     expect(song.errors).toEqual([]);
     expect(song.tracks[1]!.events[0]).toMatchObject({ type: 'note', tick: 0, program: DRUM_PROGRAMS.ch });
-    expect(parseMml('R1 c').errors).toHaveLength(1); // 音符は書けない
-    expect(parseMml('R2 @3 bd').errors).toHaveLength(1); // @ は書けない
-    expect(parseMml('R1 B+5 bd').errors).toHaveLength(1);
+    expect(parseMml('R1 c').errors).toMatchObject([{ line: 1, column: 4, message: expect.stringContaining('音符を書けません') }]);
+    expect(parseMml('R2 @3 bd').errors).toMatchObject([{ line: 1, column: 4, message: expect.stringContaining("'@' を書けません") }]);
+    expect(parseMml('R1 B+5 bd').errors).toMatchObject([{ line: 1, column: 4, message: expect.stringContaining("'B' を書けません") }]);
   });
 });
 
