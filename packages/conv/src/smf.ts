@@ -184,7 +184,9 @@ export function readSmf(bytes: Uint8Array): Smf {
     }
     pos = bodyStart + len; // MTrk 以外のチャンクは読み飛ばす
   }
-  // Array.prototype.sort は安定なので、同じ tick ではトラック順・ファイル内の順が残る
-  events.sort((a, b) => a.tick - b.tick);
+  // tick の順。同じ tick ではノートオフを先にする（次のノートオンが前のノートオフより先に書かれた SMF で、
+  // 同じ高さの連打が消えないように）。Array.prototype.sort は安定なので、ほかはトラック順・ファイル内の順が残る
+  const offFirst = (e: SmfEvent): number => (e.kind === 'noteOff' ? 0 : 1);
+  events.sort((a, b) => a.tick - b.tick || offFirst(a) - offFirst(b));
   return { format, ticksPerQuarter: division, events };
 }

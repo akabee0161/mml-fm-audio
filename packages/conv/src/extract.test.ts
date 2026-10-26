@@ -125,3 +125,14 @@ describe('extract', () => {
     expect(r.discarded.size).toBe(0);
   });
 });
+
+describe('extract: 同じ tick でノートオンがノートオフより先に並ぶ SMF', () => {
+  it('同じ高さの連打が消えず 3 音になる', () => {
+    const Q = 480;
+    const ex = run(
+      [on(0, 0, 60), on(Q, 0, 60), off(Q, 0, 60), on(2 * Q, 0, 60), off(2 * Q, 0, 60), off(3 * Q, 0, 60)],
+      { ticksPerQuarter: Q },
+    );
+    expect(ex.notes.map((n) => [n.on, n.off])).toEqual([[0, 96], [96, 192], [192, 288]]);
+  });
+});

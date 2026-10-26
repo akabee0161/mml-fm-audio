@@ -43,11 +43,11 @@ describe('readSmf', () => {
   it('ランニングステータスとベロシティ 0 のノートオンを読む', () => {
     const bytes = buildSmf({
       tracks: [[]],
-      raw: [[{ tick: 0, bytes: [0x90, 60, 100, 0x00, 60, 0] }]],
+      raw: [[{ tick: 0, bytes: [0x90, 60, 100, 0x83, 0x60, 60, 0] }]],
     });
     expect(readSmf(bytes).events).toEqual([
       { kind: 'noteOn', tick: 0, channel: 0, note: 60, velocity: 100 },
-      { kind: 'noteOff', tick: 0, channel: 0, note: 60 },
+      { kind: 'noteOff', tick: 480, channel: 0, note: 60 },
     ]);
   });
 
@@ -79,6 +79,22 @@ describe('readSmf', () => {
       ],
     });
     expect(readSmf(bytes).events.map((e) => e.kind === 'noteOn' && e.note)).toEqual([1, 2]);
+  });
+
+  it('同じ tick ではノートオフを先にし、ほかは元の順を保つ', () => {
+    const bytes = buildSmf({
+      tracks: [
+        [
+          { kind: 'noteOn', tick: 480, channel: 0, note: 60, velocity: 100 },
+          { kind: 'controlChange', tick: 480, channel: 0, controller: 7, value: 1 },
+          { kind: 'noteOff', tick: 480, channel: 0, note: 60 },
+          { kind: 'controlChange', tick: 480, channel: 0, controller: 7, value: 2 },
+        ],
+      ],
+    });
+    const events = readSmf(bytes).events;
+    expect(events.map((e) => e.kind)).toEqual(['noteOff', 'noteOn', 'controlChange', 'controlChange']);
+    expect(events.filter((e) => e.kind === 'controlChange').map((e) => e.kind === 'controlChange' && e.value)).toEqual([1, 2]);
   });
 
   describe('読めないファイルは ConvError', () => {
