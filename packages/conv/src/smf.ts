@@ -21,11 +21,16 @@ const TRUNCATED = 'SMF が途中で切れています';
 
 /** 範囲を確かめながら進む読み取り位置。 */
 class Cursor {
-  constructor(
-    private readonly view: DataView,
-    public pos: number,
-    private readonly end: number,
-  ) {}
+  private readonly view: DataView;
+  pos: number;
+  private readonly end: number;
+
+  // Node の型除去だけの実行では、引数に private などを書く省略形が使えない
+  constructor(view: DataView, pos: number, end: number) {
+    this.view = view;
+    this.pos = pos;
+    this.end = end;
+  }
 
   get done(): boolean {
     return this.pos >= this.end;

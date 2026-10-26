@@ -51,7 +51,9 @@ function lowerBound(sorted: number[], value: number): number {
 class Series {
   private readonly ticks: number[] = [];
   private readonly values: number[] = [];
-  constructor(items: { tick: number; value: number }[], private readonly initial: number) {
+  private readonly initial: number;
+  constructor(items: { tick: number; value: number }[], initial: number) {
+    this.initial = initial;
     for (const item of items) {
       this.ticks.push(item.tick);
       this.values.push(item.value);

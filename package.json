@@ -15,6 +15,7 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "import:ymf825": "node tools/import-ymf825.ts",
+    "conv": "node packages/conv/src/cli.ts",
     "export:runtime": "node tools/export-runtime.ts",
     "measure:player": "node tools/measure-player.ts",
     "check:browser": "npm run build && node tools/check-browser.ts && node tools/check-consumer.ts"
