@@ -45,7 +45,7 @@ export function quantize(ex: Extracted, unit: QuantizeUnit): Quantized {
     const on = snap(n.on);
     let off = snap(n.off);
     if (off <= on) {
-      off = on + gridAt(n.on);
+      off = on + gridAt(on);
       warnings.push({
         tick: on,
         message: `チャンネル ${n.channel + 1} のノート ${n.note} は量子化で長さが 0 になるため、単位 1 つ分に延ばします`,

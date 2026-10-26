@@ -99,6 +99,32 @@ describe('quantize', () => {
     expect(q.notes.map((n) => [n.on, n.off])).toEqual([[12, 36]]);
   });
 
+  describe('既定の単位（32 分音符 = 12 ティック、3 連は 8 ティック）', () => {
+    /** 分解能 480 の SMF を extract → quantize に通して、ノートの on を返す */
+    function quantizedOns(starts: number[], length: number): number[] {
+      const events: SmfEvent[] = [];
+      starts.forEach((t, i) => {
+        events.push({ kind: 'noteOn', tick: t, channel: 0, note: 60 + i, velocity: 100 });
+        events.push({ kind: 'noteOff', tick: t + length, channel: 0, note: 60 + i });
+      });
+      const ex = extract(readSmf(buildSmf({ ticksPerQuarter: 480, tracks: [events] })));
+      return quantize(ex, 32).notes.map((n) => n.on);
+    }
+
+    it('8 分の 3 連符が 3 連の長さになる', () => {
+      expect(quantizedOns([480, 640, 800], 150)).toEqual([96, 128, 160]);
+    });
+
+    it('16 分の 3 連符が 3 連の長さになる', () => {
+      expect(quantizedOns([480, 560, 640, 720, 800, 880], 70)).toEqual([96, 112, 128, 144, 160, 176]);
+    });
+
+    it('±数ティックずれた 8 分・16 分の 3 連符も 3 連の長さになる', () => {
+      expect(quantizedOns([483, 638, 802], 150)).toEqual([96, 128, 160]);
+      expect(quantizedOns([483, 558, 643, 718, 803, 878], 70)).toEqual([96, 112, 128, 144, 160, 176]);
+    });
+  });
+
   it('チャンネルが違えば重なりを縮めない', () => {
     const q = quantize(withNotes(note(0, 36, 60, 0), note(12, 48, 60, 1)), 32);
     expect(q.notes.map((n) => n.off)).toEqual([36, 48]);
