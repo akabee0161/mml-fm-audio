@@ -15,6 +15,8 @@ export class VoicePool {
   private readonly ids: (number | null)[];
   /** ボイスごとの、noteOn した順番（大きいほど新しい） */
   private readonly startedAt: number[];
+  /** ボイスごとの、noteOff を受けた順番（0 はキーオン中） */
+  private readonly releasedAt: number[];
   private readonly programs = new Map<number, AnyVoice>();
   private readonly lfo: Lfo;
   private lfoValues = new Float32Array(128);
@@ -24,6 +26,7 @@ export class VoicePool {
     this.voices = Array.from({ length: size }, () => new Voice(sampleRate));
     this.ids = this.voices.map(() => null);
     this.startedAt = this.voices.map(() => 0);
+    this.releasedAt = this.voices.map(() => 0);
     this.lfo = new Lfo(sampleRate);
   }
 
@@ -41,6 +44,7 @@ export class VoicePool {
     this.voices[index]!.noteOn(timbre, note, pan, volume, bend);
     this.ids[index] = id;
     this.startedAt[index] = ++this.counter;
+    this.releasedAt[index] = 0;
     return true;
   }
 
@@ -64,7 +68,10 @@ export class VoicePool {
   /** id の音をキーオフする。すでに奪われた・鳴り終えた音なら何もしない */
   noteOff(id: number): void {
     const index = this.ids.indexOf(id);
-    if (index >= 0) this.voices[index]!.noteOff();
+    if (index < 0) return;
+    this.voices[index]!.noteOff();
+    // ドラムは noteOff でも鳴り続けるが、奪う順番では同じくリリース中として扱う
+    if (this.releasedAt[index] === 0) this.releasedAt[index] = ++this.counter;
   }
 
   /** すべてのボイスをすぐ無音にする（キーオフのリリースを待たない） */
@@ -88,14 +95,21 @@ export class VoicePool {
     return count;
   }
 
-  /** 空いているボイス。なければ最も古く鳴らしたボイスを止めて返す */
+  /**
+   * 空いているボイス。なければ、リリース中のうち最も古く noteOff を受けたボイス、
+   * それもなければ最も古く鳴らしたボイスを止めて返す
+   */
   private allocate(): number {
     let oldest = 0;
+    let released = -1;
     for (let i = 0; i < this.voices.length; i++) {
       if (!this.voices[i]!.active) return i;
       if (this.startedAt[i]! < this.startedAt[oldest]!) oldest = i;
+      const at = this.releasedAt[i]!;
+      if (at > 0 && (released < 0 || at < this.releasedAt[released]!)) released = i;
     }
-    this.voices[oldest]!.stop();
-    return oldest;
+    const index = released >= 0 ? released : oldest;
+    this.voices[index]!.stop();
+    return index;
   }
 }

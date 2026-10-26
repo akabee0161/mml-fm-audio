@@ -13,6 +13,8 @@ const op = (overrides: Partial<FmOperator> = {}): FmOperator => ({
 const sustain: FmVoice = { id: 0, name: 'S', kind: 'fm', bo: 0, alg: 1, lfo: 0, ops: [op(), op({ tl: 63 })] };
 /** 1 オクターブ上で鳴る、区別用の音色 */
 const octaveUp: FmVoice = { ...sustain, name: 'O', ops: [op({ mul: 2 }), op({ tl: 63 })] };
+/** キーオフの後もしばらくリリースで鳴る音色 */
+const slowRelease: FmVoice = { ...sustain, name: 'R', ops: [op({ rr: 2 }), op({ tl: 63 })] };
 const shortNoise: DrumVoice = {
   id: 130, name: 'ch', kind: 'drum',
   noise: { level: 1, ar: 15, dr: 13, sl: 15, rr: 13, color: 'white' },
@@ -50,6 +52,74 @@ describe('VoicePool', () => {
     pool.noteOff(2);
     render(pool, 2000);
     expect(pool.activeCount).toBe(15);
+  });
+
+  /** make で作った割り当てで、id の音量を 0 にしても出力が変わらなければ、id は奪われている */
+  const isStolen = (make: () => VoicePool, id: number): boolean => {
+    const expected = render(make(), 480).left;
+    const pool = make();
+    pool.setVolume(id, 0);
+    return Array.from(render(pool, 480).left).every((v, i) => v === expected[i]);
+  };
+
+  it('空きがなければ、キーオン中の音より先にリリース中の音を奪う', () => {
+    const make = (): VoicePool => {
+      const pool = new VoicePool(SR, 2);
+      pool.register(0, slowRelease);
+      pool.noteOn(1, 0, 60, 64);
+      pool.noteOn(2, 0, 64, 64);
+      pool.noteOff(2);
+      pool.noteOn(3, 0, 67, 64);
+      return pool;
+    };
+    expect(isStolen(make, 2)).toBe(true);
+    expect(isStolen(make, 1)).toBe(false);
+  });
+
+  it('リリース中の音が複数あれば、最も古くキーオフした音を奪う', () => {
+    const make = (): VoicePool => {
+      const pool = new VoicePool(SR, 3);
+      pool.register(0, slowRelease);
+      pool.noteOn(1, 0, 60, 64);
+      pool.noteOn(2, 0, 64, 64);
+      pool.noteOn(3, 0, 67, 64);
+      pool.noteOff(2);
+      pool.noteOff(1);
+      pool.noteOn(4, 0, 72, 64);
+      return pool;
+    };
+    expect(isStolen(make, 2)).toBe(true);
+    expect(isStolen(make, 1)).toBe(false);
+  });
+
+  it('リリース中の音を奪って鳴らした新しい音は、キーオン中として扱う', () => {
+    const make = (): VoicePool => {
+      const pool = new VoicePool(SR, 2);
+      pool.register(0, slowRelease);
+      pool.noteOn(1, 0, 60, 64);
+      pool.noteOn(2, 0, 64, 64);
+      pool.noteOff(2);
+      pool.noteOn(3, 0, 67, 64); // 2 のボイスを使う
+      pool.noteOn(4, 0, 72, 64); // リリース中の音がないので、最も古い 1 を奪う
+      return pool;
+    };
+    expect(isStolen(make, 1)).toBe(true);
+    expect(isStolen(make, 3)).toBe(false);
+  });
+
+  it('ノートオフを受けたドラムも、キーオン中の音より先に奪う', () => {
+    const make = (): VoicePool => {
+      const pool = new VoicePool(SR, 2);
+      pool.register(0, slowRelease);
+      pool.register(130, shortNoise);
+      pool.noteOn(1, 0, 64, 64);
+      pool.noteOn(2, 130, 60, 64);
+      pool.noteOff(2); // ドラムは鳴り続けるが、ノートオフは受けている
+      pool.noteOn(3, 0, 67, 64);
+      return pool;
+    };
+    expect(isStolen(make, 2)).toBe(true);
+    expect(isStolen(make, 1)).toBe(false);
   });
 
   it('奪われた ID の noteOff は、そのボイスの新しい音を止めない', () => {

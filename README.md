@@ -9,7 +9,7 @@ ankardo のブラウザゲームで使う、FM 音源と軽量楽曲フォーマ
 
 M4（ゲーム向け API、効果音、音量とフェード）まで。ゲームからは `FmAudio`（`packages/runtime`）で BGM と効果音を鳴らす。API は `docs/api.md`、MML の文法は `docs/mml.md`。
 
-- 音源は BGM 用 16 ボイス（`packages/engine/src/voicePool.ts` の `MAX_VOICES`、暫定）と効果音用 4 ボイス（`SE_VOICES`、暫定）。別々のボイスで、効果音が BGM のボイスを借りることはない。空きがなければ、それぞれの中で最も古く鳴らした音を止めて使う。
+- 音源は BGM 用 16 ボイス（`packages/engine/src/voicePool.ts` の `MAX_VOICES`、暫定）と効果音用 4 ボイス（`SE_VOICES`、暫定）。別々のボイスで、効果音が BGM のボイスを借りることはない。空きがなければ、それぞれの中で、ノートオフを受けた後の音（リリース中の音など）のうち最も古くノートオフを受けたものを、なければ最も古く鳴らした音を止めて使う。
 - 音色は番号（`program`）に登録して鳴らす。0〜127 は FM 音色、128〜255 はドラム。`FmEngine.noteOn` は音の ID を返し、`noteOff` はその ID で止める。ドラムは `noteOff` を無視し、鳴り終わるまで鳴る。
 - 音源は、音量（`noteOn` の倍率と `setVolume`）、ピッチベンド（`noteOn` のずれと `setPitchBend`）、予約した発音の取り消しを受け付ける。
 - `packages/sequencer` の `parseMml` が MML を解析し（エラーは行・列・理由つき）、`Player` が曲を少し先まで音源へ送って鳴らす。`L` から `E`（省けば曲の終わり）までを繰り返す。
