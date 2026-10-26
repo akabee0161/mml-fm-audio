@@ -154,7 +154,8 @@ export function currentSource(): ExportInfo {
   };
 }
 
-if (import.meta.main) {
+// import.meta.main は Node 23 系にないため、直接実行されたかを argv[1] で確かめる
+if (process.argv[1] !== undefined && realpathSync(process.argv[1]) === fileURLToPath(import.meta.url)) {
   const dest = process.argv[2];
   if (dest === undefined || dest === '') {
     console.error('使い方：npm run export:runtime -- <コピー先>');
