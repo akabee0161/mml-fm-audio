@@ -184,9 +184,32 @@ export function readSmf(bytes: Uint8Array): Smf {
     }
     pos = bodyStart + len; // MTrk 以外のチャンクは読み飛ばす
   }
-  // tick の順。同じ tick ではノートオフを先にする（次のノートオンが前のノートオフより先に書かれた SMF で、
-  // 同じ高さの連打が消えないように）。Array.prototype.sort は安定なので、ほかはトラック順・ファイル内の順が残る
-  const offFirst = (e: SmfEvent): number => (e.kind === 'noteOff' ? 0 : 1);
-  events.sort((a, b) => a.tick - b.tick || offFirst(a) - offFirst(b));
-  return { format, ticksPerQuarter: division, events };
+  // tick の順（Array.prototype.sort は安定なので、同じ tick ではトラック順・ファイル内の順が残る）
+  events.sort((a, b) => a.tick - b.tick);
+  return { format, ticksPerQuarter: division, events: offsFirst(events) };
+}
+
+/**
+ * 同じ tick の中で、前の tick から開いている音のノートオフを先頭に出す（次のノートオンが前のノートオフより
+ * 先に書かれた SMF で、同じ高さの連打が消えないように）。同じ tick で開いた音の長さ 0 のノートオフは、
+ * ノートオンの後の元の位置に残す。ほかのイベントは元の順を保つ。
+ */
+function offsFirst(sorted: SmfEvent[]): SmfEvent[] {
+  const result: SmfEvent[] = [];
+  const open = new Set<number>(); // 前の tick までに開いた（チャンネル, 音）
+  let i = 0;
+  while (i < sorted.length) {
+    let j = i;
+    while (j < sorted.length && sorted[j].tick === sorted[i].tick) j++;
+    const group = sorted.slice(i, j);
+    const isClosing = (e: SmfEvent) => e.kind === 'noteOff' && open.has(e.channel * 128 + e.note);
+    const ordered = [...group.filter(isClosing), ...group.filter((e) => !isClosing(e))];
+    result.push(...ordered);
+    for (const e of ordered) {
+      if (e.kind === 'noteOn') open.add(e.channel * 128 + e.note);
+      else if (e.kind === 'noteOff') open.delete(e.channel * 128 + e.note);
+    }
+    i = j;
+  }
+  return result;
 }

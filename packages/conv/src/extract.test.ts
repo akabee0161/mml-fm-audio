@@ -137,6 +137,14 @@ describe('extract: 同じ tick でノートオンがノートオフより先に�
   });
 });
 
+describe('extract: 同じ tick に書かれた長さ 0 のノート', () => {
+  it('ノートオン → ノートオフが同じ tick のノートは notes に入らず、警告も出ない', () => {
+    const ex = run([on(96, 0, 60), off(96, 0, 60), on(480, 0, 62), off(960, 0, 62)]);
+    expect(ex.notes.map((n) => n.note)).toEqual([62]);
+    expect(ex.warnings).toEqual([]);
+  });
+});
+
 describe('extract: 端の場合', () => {
   it('最後の tick のノートオンでノートオフがないノートは、長さ 0 になるので捨てる', () => {
     const ex = run([on(0, 0, 60), on(480, 0, 62)]);
