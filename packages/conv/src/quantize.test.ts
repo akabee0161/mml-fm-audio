@@ -34,6 +34,29 @@ describe('quantize', () => {
     expect(q.notes.every((n) => Number.isInteger(n.on) && Number.isInteger(n.off))).toBe(true);
   });
 
+  it('ドラムの短いノートオフに引っ張られず、普通の 32 分音符が 3 連に化けない', () => {
+    // 480 の分解能。メロディ c8 d16 e32 f32 に、長さ 30 の 16 分のハイハットとバスドラム
+    const events: SmfEvent[] = [
+      { kind: 'noteOn', tick: 0, channel: 0, note: 72, velocity: 100 },
+      { kind: 'noteOff', tick: 240, channel: 0, note: 72 },
+      { kind: 'noteOn', tick: 240, channel: 0, note: 74, velocity: 100 },
+      { kind: 'noteOff', tick: 360, channel: 0, note: 74 },
+      { kind: 'noteOn', tick: 360, channel: 0, note: 76, velocity: 100 },
+      { kind: 'noteOff', tick: 420, channel: 0, note: 76 },
+      { kind: 'noteOn', tick: 420, channel: 0, note: 77, velocity: 100 },
+      { kind: 'noteOff', tick: 480, channel: 0, note: 77 },
+    ];
+    for (let k = 0; k < 4; k++) {
+      events.push({ kind: 'noteOn', tick: k * 120, channel: 9, note: 42, velocity: 100 });
+      events.push({ kind: 'noteOff', tick: k * 120 + 30, channel: 9, note: 42 });
+    }
+    events.push({ kind: 'noteOn', tick: 0, channel: 9, note: 36, velocity: 100 });
+    events.push({ kind: 'noteOff', tick: 30, channel: 9, note: 36 });
+    const q = quantize(extract(readSmf(buildSmf({ ticksPerQuarter: 480, tracks: [events] }))), 32);
+    const melody = q.notes.filter((n) => n.channel === 0);
+    expect(melody.map((n) => [n.on, n.off])).toEqual([[0, 48], [48, 72], [72, 84], [84, 96]]);
+  });
+
   it('普通の 32 分音符は 3 連に化けない', () => {
     const q = quantize(withNotes(note(12, 24, 60), note(24, 36, 61), note(36, 48, 62)), 32);
     expect(q.notes.map((n) => n.on)).toEqual([12, 24, 36]);

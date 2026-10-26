@@ -7,7 +7,7 @@ export type QuantizeUnit = (typeof QUANTIZE_UNITS)[number];
 export type Quantized = Extracted;
 
 const DRUM_CHANNEL = 9;
-const WHOLE_NOTE_TICKS =TICKS_PER_QUARTER * 4;
+const WHOLE_NOTE_TICKS  = TICKS_PER_QUARTER * 4;
 
 const beatOf = (tick: number): number => Math.floor(tick / TICKS_PER_QUARTER);
 const nearest = (tick: number, grid: number): number => Math.round(tick / grid) * grid;
@@ -21,18 +21,15 @@ export function quantize(ex: Extracted, unit: QuantizeUnit): Quantized {
   const normal = WHOLE_NOTE_TICKS / unit;
   const triplet = (normal * 2) / 3;
 
-  // 拍ごとに、ノートのオン・オフの時刻のずれの合計を格子別に集める
+  // 拍ごとに、ノートのオンの時刻のずれの合計を格子別に集める。
+  // オフは数えない（ドラムの短いオフなどに引っ張られて、普通の 32 分音符が 3 連に化けるため）
   const errors = new Map<number, { normal: number; triplet: number }>();
-  const addError = (tick: number) => {
-    const beat = beatOf(tick);
-    const e = errors.get(beat) ?? { normal: 0, triplet: 0 };
-    e.normal += Math.abs(tick - nearest(tick, normal));
-    e.triplet += Math.abs(tick - nearest(tick, triplet));
-    errors.set(beat, e);
-  };
   for (const n of ex.notes) {
-    addError(n.on);
-    addError(n.off);
+    const beat = beatOf(n.on);
+    const e = errors.get(beat) ?? { normal: 0, triplet: 0 };
+    e.normal += Math.abs(n.on - nearest(n.on, normal));
+    e.triplet += Math.abs(n.on - nearest(n.on, triplet));
+    errors.set(beat, e);
   }
   /** その時刻の属する拍の格子の単位。3 連のほうがずれが小さいときだけ 3 連 */
   const gridAt = (tick: number): number => {
