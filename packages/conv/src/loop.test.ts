@@ -35,13 +35,20 @@ describe('resolveLoop', () => {
     expect(r.loop.end).toBe(384);
   });
 
+  it('マーカーがない曲の終わりは、チャンネル 10 のノートを on の 1 ティック後で数える', () => {
+    // 1 小節で終わる曲に、長さ 9 拍のクラッシュ。off を使うと無音の小節がループに入る
+    const crash: RawNote = { channel: 9, note: 49, velocity: 100, on: 0, off: 864 };
+    const r = resolveLoop(song({ notes: [note(0, 100), crash] }), meter);
+    expect(r.loop.end).toBe(384);
+  });
+
   it('loop だけは ConvError', () => {
     expect(() => resolveLoop(song({ markers: [mk(0, 'loop')] }), meter)).toThrow(ConvError);
-    expect(() => resolveLoop(song({ markers: [mk(0, 'loop')] }), meter)).toThrow('loopend');
+    expect(() => resolveLoop(song({ markers: [mk(0, 'loop')] }), meter)).toThrow('マーカー loop はありますが loopend がありません');
   });
 
   it('loopend だけ・順序が逆・同じ位置・2 つ以上は ConvError', () => {
-    expect(() => resolveLoop(song({ markers: [mk(96, 'loopend')] }), meter)).toThrow('loop');
+    expect(() => resolveLoop(song({ markers: [mk(96, 'loopend')] }), meter)).toThrow('マーカー loopend はありますが loop がありません');
     expect(() => resolveLoop(song({ markers: [mk(200, 'loop'), mk(100, 'loopend')] }), meter)).toThrow('前');
     expect(() => resolveLoop(song({ markers: [mk(100, 'loop'), mk(100, 'loopend')] }), meter)).toThrow('同じ位置');
     expect(() =>

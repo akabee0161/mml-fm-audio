@@ -4,12 +4,14 @@ import type { Quantized } from './quantize.ts';
 
 export interface LoopRange { start: number; end: number; fromMarkers: boolean }
 
+const DRUM_CHANNEL = 9;
+
 const markerTicks = (song: Quantized, name: string): number[] =>
   song.markers.filter((m) => m.text.trim().toLowerCase() === name).map((m) => m.tick);
 
 /**
  * ループの範囲を決め、loopend の位置かそれより後のノートオンと変化・テンポを捨てた Quantized を返す
- * （捨てた件数は警告 1 件）。入力は変えない。マーカーがなければ頭から最後のノートオフを含む小節の終わりまで。
+ * （捨てた件数は警告 1 件）。入力は変えない。マーカーがなければ頭から最後のノートオフ（ドラムは on + 1）を含む小節の終わりまで。
  */
 export function resolveLoop(song: Quantized, meter: Meter): { song: Quantized; loop: LoopRange } {
   if (song.notes.length === 0) throw new ConvError('ノートがありません');
@@ -24,7 +26,8 @@ export function resolveLoop(song: Quantized, meter: Meter): { song: Quantized; l
   }
 
   if (loops.length === 0) {
-    const lastOff = Math.max(...song.notes.map((n) => n.off));
+    // ドラムの off は使われない（長く描いたクラッシュで無音の小節が入らないよう、on + 1 で数える）
+    const lastOff = Math.max(...song.notes.map((n) => (n.channel === DRUM_CHANNEL ? n.on + 1 : n.off)));
     return { song, loop: { start: 0, end: meter.barEndAtOrAfter(lastOff), fromMarkers: false } };
   }
 
