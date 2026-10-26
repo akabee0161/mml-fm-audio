@@ -11,3 +11,4 @@
 | 7 | Tab で選んだ鍵盤ボタンを Enter・Space で鳴らす操作は、ヘッドレス Chromium でだけ確かめた。Firefox と Safari では未確認 | 必要になったら | `demo/main.ts` |
 | 8 | GitHub Actions で、Node.js 20 向けの actions（checkout・setup-node・wrangler-action）の非推奨表示が出る。character-tactics も同じ版に固定している | 両リポジトリでまとめて | `.github/workflows/deploy.yml` |
 | 9 | ドラム 8 種が、どれもそれらしく聞こえない（依頼者の試聴、2026-10-21）。M2 では暫定の音でよいと合意済み | M6 | `voices/custom/drums.json` |
+| 10 | `check:browser` の「ドラム ch が鳴る」が時々落ちる。クリックの 30 ms 後に 1 回だけ振幅を測る（`tools/check-browser.ts` 94〜96 行）ため、減衰の速いハイハットでは、ヘッドレスの遅れ次第で 0.01 を下回る。直し方は #rhythm と同じく、短い時間の最大を取る（M5 の最終レビュー、2026-10-26） | 必要になったら | `tools/check-browser.ts` |
