@@ -6,7 +6,8 @@ export type QuantizeUnit = (typeof QUANTIZE_UNITS)[number];
 /** Extracted と同じ形で、すべての tick が整数。discarded はそのまま引き継ぐ */
 export type Quantized = Extracted;
 
-const WHOLE_NOTE_TICKS = TICKS_PER_QUARTER * 4;
+const DRUM_CHANNEL = 9;
+const WHOLE_NOTE_TICKS =TICKS_PER_QUARTER * 4;
 
 const beatOf = (tick: number): number => Math.floor(tick / TICKS_PER_QUARTER);
 const nearest = (tick: number, grid: number): number => Math.round(tick / grid) * grid;
@@ -46,10 +47,13 @@ export function quantize(ex: Extracted, unit: QuantizeUnit): Quantized {
     let off = snap(n.off);
     if (off <= on) {
       off = on + gridAt(on);
-      warnings.push({
-        tick: on,
-        message: `チャンネル ${n.channel + 1} のノート ${n.note} は量子化で長さが 0 になるため、単位 1 つ分に延ばします`,
-      });
+      // ドラムの off は使われないので、警告はメロディのノートだけ
+      if (n.channel !== DRUM_CHANNEL) {
+        warnings.push({
+          tick: on,
+          message: `チャンネル ${n.channel + 1} のノート ${n.note} は量子化で長さが 0 になるため、単位 1 つ分に延ばします`,
+        });
+      }
     }
     return { ...n, on, off };
   });

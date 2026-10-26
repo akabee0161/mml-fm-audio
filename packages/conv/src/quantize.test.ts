@@ -46,6 +46,11 @@ describe('quantize', () => {
     expect(q.warnings[0].message).toContain('チャンネル 1');
   });
 
+  it('チャンネル 10（ドラム）の短いノートは警告しない', () => {
+    const q = quantize(withNotes(note(13, 15, 38, 9)), 32);
+    expect(q.warnings).toHaveLength(0);
+  });
+
   it('--quantize 16 では 24 ティック単位、3 連は 16 ティック', () => {
     const normal = quantize(withNotes(note(25, 47)), 16);
     expect(normal.notes.map((n) => [n.on, n.off])).toEqual([[24, 48]]);
