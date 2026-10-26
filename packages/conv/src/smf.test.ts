@@ -97,6 +97,25 @@ describe('readSmf', () => {
     expect(events.filter((e) => e.kind === 'controlChange').map((e) => e.kind === 'controlChange' && e.value)).toEqual([1, 2]);
   });
 
+  it('フォーマット 0 の 1 トラックを読む', () => {
+    const smf = readSmf(
+      buildSmf({
+        format: 0,
+        tracks: [[
+          { kind: 'noteOn', tick: 0, channel: 0, note: 60, velocity: 100 },
+          { kind: 'noteOff', tick: 480, channel: 0, note: 60 },
+        ]],
+      }),
+    );
+    expect(smf.format).toBe(0);
+    expect(smf.events.map((e) => e.kind)).toEqual(['noteOn', 'noteOff']);
+  });
+
+  it('marker は latin1 として読む（0x80 以上のバイトも 1 文字）', () => {
+    const smf = readSmf(buildSmf({ tracks: [[{ kind: 'marker', tick: 0, text: 'a\u0080éÿ' }]] }));
+    expect(smf.events).toEqual([{ kind: 'marker', tick: 0, text: 'a\u0080éÿ' }]);
+  });
+
   describe('読めないファイルは ConvError', () => {
     const valid = buildSmf({
       tracks: [[{ kind: 'noteOn', tick: 0, channel: 0, note: 60, velocity: 100 }]],
@@ -120,6 +139,25 @@ describe('readSmf', () => {
       expect(() => readSmf(new Uint8Array([1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14])))
         .toThrow(ConvError);
       expect(() => readSmf(new Uint8Array([]))).toThrow('SMF ではありません');
+    });
+
+    it('分解能が 0', () => {
+      const b = valid.slice();
+      b[12] = 0;
+      b[13] = 0;
+      expect(() => readSmf(b)).toThrow(ConvError);
+      expect(() => readSmf(b)).toThrow('分解能が 0');
+    });
+
+    it('MTrk の長さは正しいが、中のイベントが途中で切れている', () => {
+      // MTrk の長さ 3 に収まる [デルタ 0, ノートオン ch1, ノート 60] で、ベロシティがない
+      const b = Uint8Array.from([
+        ...valid.slice(0, 14),
+        0x4d, 0x54, 0x72, 0x6b, 0, 0, 0, 3,
+        0x00, 0x90, 0x3c,
+      ]);
+      expect(() => readSmf(b)).toThrow(ConvError);
+      expect(() => readSmf(b)).toThrow('途中で切れています');
     });
 
     it('途中で切れている', () => {
