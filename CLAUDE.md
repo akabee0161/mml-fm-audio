@@ -8,6 +8,7 @@
 - `voices/ymf825/*.json` は `npm run import:ymf825` の生成物。手で編集しない。独自の音色は `voices/custom/` に分けて置く。
 - `packages/engine/src/voiceData.ts` は `tools/` から Node で直接読むため、他のファイルを import しない。`tools/` の import は拡張子 `.ts` つきで書く。
 - 音の計算は Worklet に依存しない形で書き、Vitest で確かめる。`processor.ts` は薄く保つ。
+- SMF → MML 変換は `packages/conv`（`npm run conv -- song.mid -o song.mml [--quantize 32] [--report]`、文書は `docs/conv.md`）。`sequencer` の `parseMml`・`TICKS_PER_QUARTER`・`DRUM_PROGRAMS` だけを相対パスで使い、`runtime`・`engine` には依存せず、ゲームへコピーしない。import は拡張子 `.ts` つき（Node が直接実行する）。
 - `packages/runtime` から `engine`・`sequencer` へは相対パスで import する（`@mml-fm-audio/*` を使わない）。ゲームへコピーしたとき、裸の import が解決できないため。
 - パーサーと `Player` を触るときは、`npm run measure:player` で 1 回の pump の最大時間を見る。病的な入力で重くならないことを確かめる。
 - 想定外の MML（手書きの曲や変換ツールの出力では出ない、極端な入力）への対策は、過剰に扱わない。課題として挙げるのはよいが、普通の曲で実害がなければ、簡単な上限のエラーで止めるか、`ISSUES.md` に書く程度にとどめる。凝った対策や、その検証に大きな手間をかけない（依頼者の方針、2026-10-25）。
