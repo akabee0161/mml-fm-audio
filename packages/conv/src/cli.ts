@@ -1,7 +1,8 @@
 // SMF を MML へ変換するコマンド。
 // 使い方：npm run conv -- <入力.mid> [-o <出力.mml>] [--quantize 4|8|16|32|64] [--report]
-import { readFileSync, writeFileSync } from 'node:fs';
+import { readFileSync, realpathSync, writeFileSync } from 'node:fs';
 import { resolve } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { parseArgs } from 'node:util';
 import { TICKS_PER_QUARTER } from '../../sequencer/src/index.ts';
 import { ConvError, convertSmf, QUANTIZE_UNITS } from './index.ts';
@@ -89,7 +90,8 @@ export function runCli(args: string[], io: CliIo): number {
   return 0;
 }
 
-if (import.meta.main) {
+// import.meta.main は Node 23 系にないため、直接実行されたかを argv[1] で確かめる
+if (process.argv[1] !== undefined && realpathSync(process.argv[1]) === fileURLToPath(import.meta.url)) {
   // npm run はリポジトリのルートへ移ってから動くので、相対パスは npm run を実行した場所（INIT_CWD）から解く
   const code = runCli(process.argv.slice(2), {
     cwd: process.env.INIT_CWD ?? process.cwd(),
