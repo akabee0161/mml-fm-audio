@@ -70,8 +70,8 @@ describe('allocateTracks', () => {
     expect(r.tracks).toHaveLength(1);
     expect(r.warnings).toHaveLength(1);
     expect(r.warnings[0].tick).toBe(0);
-    expect(r.warnings[0].message).toContain('80');
-    expect(r.warnings[0].message).toContain('2');
+    expect(r.warnings[0].message).toContain('ドラムのノート 80');
+    expect(r.warnings[0].message).toContain('2 件');
   });
 
   it('J を含めて 30 を超えたら ConvError、文にチャンネルごとのトラック数', () => {
@@ -108,6 +108,31 @@ describe('allocateTracks', () => {
       ...Array.from({ length: 17 }, (_, i) => n(0, 40 + i, 192, 288)),
     ];
     expect(alloc(notes).warnings.map((w) => w.tick)).toEqual([0, 192]);
+  });
+
+  it('同時に打つドラムの並びは bd sd ch oh cy lt ht cp で、cp が最後', () => {
+    const r = alloc([n(9, 37, 0, 10), n(9, 47, 0, 10), n(9, 36, 0, 10)]);
+    expect(r.tracks.map((t) => [t.name, t.drumNames])).toEqual([['R1', ['bd']], ['R2', ['ht']], ['R3', ['cp']]]);
+  });
+
+  it('ドラムの打撃も同時発音に数える（打撃の tick だけ）', () => {
+    const melody = Array.from({ length: 15 }, (_, i) => n(0, 40 + i, 0, 96));
+    // 15 + bd・sd の 2 打 = 17
+    const together = alloc([...melody, n(9, 36, 0, 10), n(9, 38, 0, 10)]);
+    expect(together.warnings).toHaveLength(1);
+    expect(together.warnings[0].message).toContain('17');
+    // 打撃は次の tick には残らない：15 + 1 打 = 16 は通り、メロディが終わった 96 の打撃も数えない
+    expect(alloc([...melody, n(9, 36, 48, 58), n(9, 36, 96, 106)]).warnings).toEqual([]);
+  });
+
+  it('perChannel はチャンネルの順で、チャンネル 10 はチャンネル 11 以降の前に来る', () => {
+    const r = alloc([n(10, 60, 0, 96), n(9, 36, 0, 10), n(0, 60, 0, 96)]);
+    expect(r.tracks.map((t) => t.name)).toEqual(['A', 'K', 'R']);
+    expect(r.perChannel).toEqual([
+      { channel: 0, names: ['A'] },
+      { channel: 9, names: ['R'] },
+      { channel: 10, names: ['K'] },
+    ]);
   });
 
   it('ノートのないチャンネルにはトラックを作らない', () => {
