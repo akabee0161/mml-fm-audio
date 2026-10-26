@@ -8,8 +8,8 @@ export interface SourcePosition { line: number; column: number }
  */
 export interface TrackSource { name: string; text: string; positions: SourcePosition[] }
 
-// A〜P、A〜P に 1 以上の整数（先頭が 0 でない）、R。後ろは空白か行末
-const TRACK_NAME = /^(?:[A-P][1-9][0-9]*|[A-P]|R)(?=\s|$)/u;
+// A〜P、R、A〜P・R に 1 以上の整数（先頭が 0 でない）。後ろは空白か行末
+const TRACK_NAME = /^(?:[A-PR][1-9][0-9]*|[A-P]|R)(?=\s|$)/u;
 
 /** 曲のトラック数の上限（違うトラック名の数）。超えた分は解析しない */
 export const MAX_TRACKS = 30;
@@ -40,7 +40,7 @@ export function splitTracks(mml: string): { tracks: TrackSource[]; errors: MmlEr
       errors.push({
         line,
         column: columns[lead]!, // lead は body の範囲内
-        message: 'トラック名が正しくありません（行頭に A〜P、A〜P に 1 以上の整数、R のどれかを書きます）',
+        message: 'トラック名が正しくありません（行頭に A〜P、A〜P に 1 以上の整数、R、R に 1 以上の整数のどれかを書きます）',
       });
       return;
     }

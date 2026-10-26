@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { analyzeMml, parseMml } from './parser.ts';
+import { DRUM_PROGRAMS } from './song.ts';
 import { splitTracks } from './source.ts';
 
 function notes(mml: string, track = 0) {
@@ -184,6 +185,26 @@ describe('splitTracks', () => {
     const { tracks, errors } = splitTracks('A1 c\nP12 c\nR r');
     expect(errors).toEqual([]);
     expect(tracks.map((t) => t.name)).toEqual(['A1', 'P12', 'R']);
+  });
+
+  it('ドラムのサブトラック R1, R12 を受け付ける', () => {
+    const { tracks, errors } = splitTracks('R1 bd\nR12 sd');
+    expect(errors).toEqual([]);
+    expect(tracks.map((t) => t.name)).toEqual(['R1', 'R12']);
+  });
+
+  it('R0・R01 はトラック名のエラー', () => {
+    expect(splitTracks('R0 bd').errors).toHaveLength(1);
+    expect(splitTracks('R01 bd').errors).toHaveLength(1);
+  });
+
+  it('R1 は R と同じドラムトラックとして解析する', () => {
+    const song = parseMml('R bd8 ch8\nR1 ch8 ch8');
+    expect(song.errors).toEqual([]);
+    expect(song.tracks[1]!.events[0]).toMatchObject({ type: 'note', tick: 0, program: DRUM_PROGRAMS.ch });
+    expect(parseMml('R1 c').errors).toHaveLength(1); // 音符は書けない
+    expect(parseMml('R2 @3 bd').errors).toHaveLength(1); // @ は書けない
+    expect(parseMml('R1 B+5 bd').errors).toHaveLength(1);
   });
 });
 
