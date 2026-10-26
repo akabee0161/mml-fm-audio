@@ -57,6 +57,20 @@ describe('quantize', () => {
     expect(melody.map((n) => [n.on, n.off])).toEqual([[0, 48], [48, 72], [72, 84], [84, 96]]);
   });
 
+  it('長さ 0 の延ばし幅は、量子化後の on の属する拍の格子で決める', () => {
+    // 拍 0 は 3 連（格子 32）、拍 1 は普通（格子 24）。拍 0 の末尾の短いノートは拍 1 の頭 96 に丸まる
+    const q = quantize(
+      withNotes(
+        note(0, 15, 60), note(33, 47, 61), note(65, 79, 62), // 拍 0：3 連
+        note(94, 95, 63), // 96 に丸まり、off も 96 で長さ 0
+        note(120, 140, 64), note(144, 160, 65), note(168, 190, 66), // 拍 1：普通
+      ),
+      16,
+    );
+    const n63 = q.notes.find((n) => n.note === 63)!;
+    expect([n63.on, n63.off]).toEqual([96, 120]);
+  });
+
   it('普通の 32 分音符は 3 連に化けない', () => {
     const q = quantize(withNotes(note(12, 24, 60), note(24, 36, 61), note(36, 48, 62)), 32);
     expect(q.notes.map((n) => n.on)).toEqual([12, 24, 36]);

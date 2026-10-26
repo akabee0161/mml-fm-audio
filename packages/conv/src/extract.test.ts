@@ -136,3 +136,21 @@ describe('extract: 同じ tick でノートオンがノートオフより先に�
     expect(ex.notes.map((n) => [n.on, n.off])).toEqual([[0, 96], [96, 192], [192, 288]]);
   });
 });
+
+describe('extract: 端の場合', () => {
+  it('最後の tick のノートオンでノートオフがないノートは、長さ 0 になるので捨てる', () => {
+    const ex = run([on(0, 0, 60), on(480, 0, 62)]);
+    expect(ex.notes.map((n) => [n.note, n.on, n.off])).toEqual([[60, 0, 96]]);
+  });
+
+  it('チャンネル 10 のノートも notes に入る', () => {
+    const ex = run([on(0, 9, 36), off(120, 9, 36)]);
+    expect(ex.notes).toEqual([{ channel: 9, note: 36, velocity: 100, on: 0, off: 24 }]);
+  });
+
+  it('対応するノートオンのないノートオフは無視する（ノートも警告も増えない）', () => {
+    const ex = run([off(0, 0, 60), on(0, 0, 62), off(480, 0, 62)]);
+    expect(ex.notes.map((n) => n.note)).toEqual([62]);
+    expect(ex.warnings).toEqual([]);
+  });
+});

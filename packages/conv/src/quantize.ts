@@ -7,7 +7,7 @@ export type QuantizeUnit = (typeof QUANTIZE_UNITS)[number];
 export type Quantized = Extracted;
 
 const DRUM_CHANNEL = 9;
-const WHOLE_NOTE_TICKS  = TICKS_PER_QUARTER * 4;
+const WHOLE_NOTE_TICKS = TICKS_PER_QUARTER * 4;
 
 const beatOf = (tick: number): number => Math.floor(tick / TICKS_PER_QUARTER);
 const nearest = (tick: number, grid: number): number => Math.round(tick / grid) * grid;
