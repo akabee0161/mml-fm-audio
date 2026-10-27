@@ -98,5 +98,6 @@ if (process.argv[1] !== undefined && realpathSync(process.argv[1]) === fileURLTo
     stdout: (text) => process.stdout.write(text),
     stderr: (text) => process.stderr.write(text),
   });
-  process.exit(code);
+  // process.exit は書き終えていない標準出力を捨てることがあるので、終了コードだけを決めて自然に終える
+  process.exitCode = code;
 }
