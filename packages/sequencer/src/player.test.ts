@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { parseMml } from './parser.ts';
 import { Player, volumeGain } from './player.ts';
 import type { EngineLike } from './player.ts';
+import { DRUM_PROGRAMS } from './song.ts';
 import { Timeline } from './timing.ts';
 
 type Call =
@@ -123,6 +124,19 @@ describe('Player', () => {
     const { player, calls } = make('A c8&v8c8');
     player.pump(0, 1e9);
     expect(calls.filter((c) => c.type === 'volume')).toEqual([{ type: 'volume', id: 1, volume: volumeGain(8), time: 12000 }]);
+  });
+
+  it('ドラムのサブトラック R1 も、R と同じく音符の長さの位置でノートオフを送る（音源がボイスを奪う順番に入る）', () => {
+    const { player, calls } = make('R bd8 sd8\nR1 cy8 cy8');
+    player.pump(0, 1e9);
+    const offs = (ids: number[]) =>
+      calls.filter((c) => c.type === 'noteOff' && ids.includes(c.id)).map((c) => c.type === 'noteOff' && c.time);
+    const idsOf = (programs: number[]) =>
+      ons(calls).filter((c) => c.type === 'noteOn' && programs.includes(c.program)).map((c) => c.id);
+    const r = idsOf([DRUM_PROGRAMS.bd, DRUM_PROGRAMS.sd]);
+    const r1 = idsOf([DRUM_PROGRAMS.cy]);
+    expect(offs(r)).toEqual([12000, 24000]);
+    expect(offs(r1)).toEqual([12000, 24000]);
   });
 
   it('同じ時刻：ノートオフ → setPitchBend → ノートオン', () => {
