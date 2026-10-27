@@ -25,8 +25,8 @@ const LENGTH_TABLE = new Map<number, number>(
 
 const NOTE_SEMITONES: Record<string, number> = { c: 0, d: 2, e: 4, f: 5, g: 7, a: 9, b: 11 };
 
-/** ドラムトラックの名前（spec §3.4） */
-const DRUM_TRACK_NAME = 'R';
+/** ドラムトラックの名前（spec §3.4）。`R` と、サブトラック `R1`、`R2`、… */
+const DRUM_TRACK_NAME = /^R(?:[1-9][0-9]*)?$/u;
 const DRUM_NOTE = 60;
 
 type NoteEvent = Extract<TrackEvent, { type: 'note' }>;
@@ -438,7 +438,7 @@ function parseTrack(source: TrackSource, errors: MmlError[]): ParsedTrack {
     noteEvent: null,
     volumeIndex: -1,
     bendIndex: -1,
-    drumTrack: source.name === DRUM_TRACK_NAME,
+    drumTrack: DRUM_TRACK_NAME.test(source.name),
     tempos: [],
     repeats: [],
   };
