@@ -48,9 +48,12 @@ export function extract(smf: Smf): Extracted {
   const open = new Map<number, OpenNote>(); // channel * 128 + note
   const lastTick = smf.events.length > 0 ? smf.events[smf.events.length - 1].tick : 0;
 
-  const finish = (ch: number, note: number, o: OpenNote, endTick: number) => {
+  /** ノートを終えて notes に入れる。長さが 0 以下なら捨てて false */
+  const finish = (ch: number, note: number, o: OpenNote, endTick: number): boolean => {
     const off = endTick * scale;
-    if (off > o.on) out.notes.push({ channel: ch, note, velocity: o.velocity, on: o.on, off });
+    if (off <= o.on) return false;
+    out.notes.push({ channel: ch, note, velocity: o.velocity, on: o.on, off });
+    return true;
   };
 
   for (const e of smf.events) {
@@ -124,11 +127,12 @@ export function extract(smf: Smf): Extracted {
   for (const [key, o] of open) {
     const ch = Math.floor(key / 128);
     const note = key % 128;
+    // 長さ 0 で捨てたノートには警告を出さない
+    if (!finish(ch, note, o, lastTick)) continue;
     out.warnings.push({
       tick: o.on,
       message: `チャンネル ${ch + 1} のノート ${note} にノートオフがありません。曲の最後で終えます`,
     });
-    finish(ch, note, o, lastTick);
   }
   // 重なりやノートオフのない音は後から追加されるので、on の順に整える（安定ソート）
   out.notes.sort((a, b) => a.on - b.on);

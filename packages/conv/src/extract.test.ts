@@ -146,9 +146,11 @@ describe('extract: 同じ tick に書かれた長さ 0 のノート', () => {
 });
 
 describe('extract: 端の場合', () => {
-  it('最後の tick のノートオンでノートオフがないノートは、長さ 0 になるので捨てる', () => {
+  it('最後の tick のノートオンでノートオフがないノートは、長さ 0 になるので警告なしに捨てる', () => {
     const ex = run([on(0, 0, 60), on(480, 0, 62)]);
     expect(ex.notes.map((n) => [n.note, n.on, n.off])).toEqual([[60, 0, 96]]);
+    // 警告は曲の最後で終えたノート 60 の分だけ
+    expect(ex.warnings.map((w) => w.message)).toEqual([expect.stringContaining('ノート 60 にノートオフがありません')]);
   });
 
   it('チャンネル 10 のノートも notes に入る', () => {
