@@ -30,7 +30,9 @@
 - M4（ゲームから使う API `FmAudio`、BGM と効果音の再生）は、実装・レビュー・マージまで完了。PR #5 でマージ済み（424a7eb、2026-10-25）。CodeRabbit は指摘 0 件で承認した。詳細は下の「M4 の状態」。依頼者が公開後の確認 1〜8 を済ませたものとした（2026-10-25）。
 
 - M5（conv：SMF → MML 変換）は、ブランチ `feat/m5-conv` で全 9 タスクを実装した（2026-10-26）。ブランチ全体の最終レビューの指摘（Important 2 件・Minor 10 件）と、その修正の副作用（同じ tick の長さ 0 のノートが鳴り続ける）を直し、push した（2026-10-26。依頼者が手元の環境で SMF を試すため）。2026-10-27 に依頼者が手元の環境で Domino の SMF を試し、見つかった 2 件を直した（Node 23 系で CLI が動かない件はこのブランチ、ボイスの奪い方はブランチ `fix/voice-steal`）。PR #7 でマージ済み（1525a8e、2026-10-27、依頼者がマージ）。CodeRabbit の 1 回目のレビュー（7ab409e、変更の要求、指摘 3 件）はすべて内容を確かめて直し、各スレッドに返信した。2 回目（b6663de）で承認された。詳細は下の「M5 の状態」。
-  - マージの後の GitHub Actions のデプロイは `npm ci` で失敗した。M5 で `packages/conv/package.json`（workspaces の 1 つ）を足したのに、`package-lock.json` を更新していなかったため（「Missing: @mml-fm-audio/conv from lock file」）。手元では `node_modules` が残っていて、テスト・ビルドは通っていた。ブランチ `fix/conv-lockfile` で `npm install` によりロックファイルに 7 行を足し、手元で `npm ci` の後に `npm test`（612 件）・`npm run build`・`npm run check:browser` が通ることを確かめた。M5 は、このデプロイが成功するまで公開されていない。
+  - マージの後の GitHub Actions のデプロイは `npm ci` で失敗した。M5 で `packages/conv/package.json`（workspaces の 1 つ）を足したのに、`package-lock.json` を更新していなかったため（「Missing: @mml-fm-audio/conv from lock file」）。手元では `node_modules` が残っていて、テスト・ビルドは通っていた。ブランチ `fix/conv-lockfile` で `npm install` によりロックファイルに 7 行を足し、手元で `npm ci` の後に `npm test`（612 件）・`npm run build`・`npm run check:browser` が通ることを確かめた。
+  - `fix/conv-lockfile` は、依頼者の指示で `main` に早送りでマージして直接 push した（15a244f、2026-10-27）。デプロイ（run 40583627918）は `npm ci`・`npm test`・`npm run build`・Cloudflare へのデプロイがすべて成功し、M5 は公開された。workspaces にパッケージを足したら、`npm install` でロックファイルも更新すること。
+- M6 の方針（2026-10-27、依頼者と相談して決めた。詳細は「次にやること」）：音源の補正（#1〜#3）とスピーカー風フィルターの調整はしない（フィルターは機能ごと消す）。音色とドラムは、依頼者が手元で選んだものを JSON で受け取って入れる。音色バンクは M7。
   - CodeRabbit の指摘への対応：HANDOVER の「PR 未作成」の食い違い、CLI の終わり方（`process.exit` は書き終えていない標準出力を捨てることがあるので `process.exitCode` にした）、長さ 0 で捨てるノートオフのないノートに警告が出ていた件（`docs/conv.md` のとおり警告なしにした）。
   - `docs/conv.md` の「実装で決めたこと」は、マージの前に決めなくてよいものと私が判断し、普通の曲で結果が変わりうる 2 つを依頼者に尋ね、どちらも今のままとした（2026-10-27）。3 連符への化けは、依頼者が Domino でリアルタイム入力の曲は扱わないので私に一任され、今の規則のまま、拍ごとの判定がチャンネルをまたぐことを `docs/conv.md` に足した。同じ時刻の同じドラム名はベロシティの大きいほう 1 つを残すままで、ドラムを増やすことは M6 で行う（`ISSUES.md` #12）。
 - `fix/voice-steal` は PR #6 で `main` にマージ済み（2aeb9f8、2026-10-27、依頼者がマージ）。CodeRabbit は指摘 0 件で承認した。PR を出す前の確認：`npm test` は最初の 1 回だけ 1 件落ち（テスト名は控えていない）、その後 8 回は 489 件すべて通過。`npm run build`・`npm run check:browser` は通過。
@@ -39,10 +41,12 @@
 
 ## 次にやること
 
-1. `fix/conv-lockfile`（ロックファイルの修正）を `main` に入れ、GitHub Actions のデプロイが成功したことを確かめる。PR にするか直接 push するかは依頼者の確認の後。
-2. マージ・公開の後の確認は、設計書 §1.1 の 4（ベロシティ・ボリューム・エクスプレッションの差）と 5（マーカー `loop`・`loopend` の曲）が残っている。依頼者は 2026-10-27 の時点では確認しなくてよいとした。
-3. 次のマイルストーンは M6（`docs/spec.md` §7）。設計 → 計画 → 実装を 1 回ずつ回す。`ISSUES.md` で M6 に回した課題は #1・#2・#3・#9・#12（ドラムを増やす）。
-4. マージ済みのブランチ（`fix/voice-steal`・`feat/m5-conv` を含む）は手元とリモートに残っている。整理するときは依頼者に確認する。
+1. スピーカー風フィルターを機能ごと消す（依頼者の決定、2026-10-27。当時の着メロの雰囲気の再現は目指していないため）。消すもの：`packages/runtime/src/fmAudio.ts` の `setSpeakerFilter` とフィルターのノード（`SPEAKER_HIGHPASS_HZ`・`SPEAKER_LOWPASS_HZ`）、試聴ページのチェックボックス（`demo/index.html`・`demo/main.ts` の分析器のつなぎ直しを含む）、`fmAudio.test.ts` と `tools/check-browser.ts` の確認、`docs/api.md`・README・`docs/spec.md`（§2.1 の行、§5 の使用例、§7 の M6 の行、§9 の未決事項 3 は「消したので不要」として閉じる）。ゲームへコピー済みの `FmAudio` は無いので、API が減っても影響はない。
+2. `ISSUES.md` の #1・#2・#3 の直す時期を「聞いて気になったら」に変える（依頼者の決定、2026-10-27。試聴ページで聞いて気にならなかったため）。
+3. M6（音色集の整備）の残り：GM の主要音色とドラムは、依頼者が手元で音色を選び、`FmVoice`・`DrumVoice` の形の JSON（GM のプログラム番号・ドラムのノート番号つき）で渡す。受け取ったら `voices/custom/` に入れ、ドラムの種類を増やす（`ISSUES.md` #9・#12：MML のドラム名・`DRUM_PROGRAMS`・変換の対応表・音色を合わせて変える）。この取り込みは、JSON を受け取ってから設計 → 計画 → 実装を回す。音色の出どころの情報は入れず、パラメーターだけを入れる。
+4. 音色バンク（同じ GM の番号に複数の音色を持ち、曲の側で選ぶ仕組み）は M6 の後（M7）に作る（依頼者の決定、2026-10-27）。
+5. マージ・公開の後の確認は、設計書 §1.1 の 4（ベロシティ・ボリューム・エクスプレッションの差）と 5（マーカー `loop`・`loopend` の曲）が残っている。依頼者は 2026-10-27 の時点では確認しなくてよいとした。
+6. マージ済みのブランチ（`fix/voice-steal`・`feat/m5-conv`・`fix/conv-lockfile` を含む）は手元とリモートに残っている（`fix/conv-lockfile` は手元だけ）。整理するときは依頼者に確認する。
 
 ## M5 の状態（2026-10-26）
 
