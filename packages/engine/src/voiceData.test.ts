@@ -184,6 +184,27 @@ describe('validateDrum', () => {
     expect(paths(bd({ fm: { voice: v, note: 36, level: 1 } }))).toContain('fm.voice.ops[1].ar');
   });
 
+  it('出力するオペレーターは sl=0 なら dr=0 でもよい（sr≥1 で鳴り終わる）', () => {
+    const v = drumFm(0);
+    v.ops[1] = op({ dr: 0, sl: 0, sr: 8 });
+    expect(validateDrum(bd({ fm: { voice: v, note: 36, level: 1 } })).ok).toBe(true);
+  });
+
+  it('出力するオペレーターが dr=0 で sl≥1 なら、今までどおり dr のエラー', () => {
+    const v = drumFm(0);
+    v.ops[1] = op({ dr: 0, sl: 1, sr: 8 });
+    const result = validateDrum(bd({ fm: { voice: v, note: 36, level: 1 } }));
+    expect(result.ok ? [] : result.errors).toEqual([
+      { path: 'fm.voice.ops[1].dr', message: 'ドラムは鳴り終わる必要があるため、dr≥1 にしてください' },
+    ]);
+  });
+
+  it('出力するオペレーターが dr=0・sl=0・sr=0 なら、sr のエラー', () => {
+    const v = drumFm(0);
+    v.ops[1] = op({ dr: 0, sl: 0, sr: 0 });
+    expect(paths(bd({ fm: { voice: v, note: 36, level: 1 } }))).toEqual(['fm.voice.ops[1].sr']);
+  });
+
   it('ノイズの ar=0 や dr=0 も鳴り終わらないのでエラー', () => {
     const p = paths({ id: 130, name: 'ch', kind: 'drum', noise: noise({ ar: 0, dr: 0 }) });
     expect(p).toContain('noise.ar');

@@ -218,7 +218,8 @@ export function validateDrum(input: unknown): DrumValidationResult {
           const fail = (field: string, message: string) =>
             errors.push({ path: `fm.voice.ops[${c}].${field}`, message: `ドラムは鳴り終わる必要があるため、${message}` });
           if (op.ar === 0) fail('ar', 'ar≥1 にしてください');
-          if (op.dr === 0) fail('dr', 'dr≥1 にしてください');
+          // sl=0 はディケイで下がる先が無く、dr に関わらずサステインへ移るので dr=0 でもよい
+          if (op.dr === 0 && op.sl > 0) fail('dr', 'dr≥1 にしてください');
           if (op.sl < 15 && op.sr === 0) fail('sr', 'sl=15 か sr≥1 にしてください');
         }
       }
