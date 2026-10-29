@@ -20,17 +20,10 @@ export interface AudioParamLike {
 
 export interface AudioNodeLike {
   connect(destination: unknown, output?: number, input?: number): unknown;
-  disconnect(): void;
 }
 
 export interface GainNodeLike extends AudioNodeLike {
   readonly gain: AudioParamLike;
-}
-
-export interface BiquadFilterNodeLike extends AudioNodeLike {
-  type: string;
-  readonly frequency: AudioParamLike;
-  readonly Q: AudioParamLike;
 }
 
 export interface AudioContextLike {
@@ -41,7 +34,6 @@ export interface AudioContextLike {
   resume(): Promise<void>;
   suspend(): Promise<void>;
   createGain(): GainNodeLike;
-  createBiquadFilter(): BiquadFilterNodeLike;
 }
 
 export interface VisibilityLike {
@@ -89,9 +81,6 @@ interface BgmState {
 
 /** 音量を変えるときの時定数（秒）。プチッと鳴らない程度に短く */
 const VOLUME_TIME_CONSTANT = 0.005;
-/** スピーカー風フィルターの周波数（Hz、暫定） */
-const SPEAKER_HIGHPASS_HZ = 300;
-const SPEAKER_LOWPASS_HZ = 7000;
 
 function requireVolume(name: string, value: unknown): asserts value is number {
   if (typeof value !== 'number' || !Number.isFinite(value) || value < 0 || value > 1) {
@@ -117,15 +106,12 @@ export class FmAudio {
   readonly context: BaseAudioContext;
   readonly engine: FmEngine;
   // 経路：engine 出力 0 → bgmFade → bgmGain → master、出力 1 → seGain → master、master → destination
-  // スピーカー風フィルターがオンのときは master → ハイパス → ローパス → destination
   // bgmFade は stopBgm のフェード専用の倍率、bgmGain・seGain・master は setVolume の音量
   private readonly bgmFade: GainNodeLike;
   private readonly bgmGain: GainNodeLike;
   private readonly seGain: GainNodeLike;
   private readonly master: GainNodeLike;
 
-  private filters: { highpass: BiquadFilterNodeLike; lowpass: BiquadFilterNodeLike } | null = null;
-  private speakerFilter = false;
   /** タブが裏に回ったとき、こちらから suspend したか */
   private suspendedByVisibility = false;
   /** bgmFade を 0 へ下げた（1 でない）可能性があるか。次の playBgm で 1 へ戻す */
@@ -164,10 +150,9 @@ export class FmAudio {
     visibility?.addEventListener('visibilitychange', () => this.onVisibilityChange(visibility));
   }
 
-  /** destination の直前のノード。分析器をつなぐ用。スピーカー風フィルターのオン・オフで変わる */
+  /** destination の直前のノード。分析器をつなぐ用 */
   get output(): AudioNode {
-    const last = this.speakerFilter && this.filters ? this.filters.lowpass : this.master;
-    return last as unknown as AudioNode;
+    return this.master as unknown as AudioNode;
   }
 
   /** テスト用。偽の AudioContext・音源でつなぐ。通常は init を使う */
@@ -295,35 +280,6 @@ export class FmAudio {
     for (const [, value, node] of targets) {
       if (value !== undefined) node.gain.setTargetAtTime(value, now, VOLUME_TIME_CONSTANT);
     }
-  }
-
-  /** 出力の最後にハイパス（300 Hz）とローパス（7000 Hz）を入れて、小さなスピーカー風にする。既定はオフ */
-  setSpeakerFilter(enabled: boolean): void {
-    if (typeof enabled !== 'boolean') {
-      throw new RangeError(`setSpeakerFilter: enabled は true か false にしてください（enabled=${String(enabled)}）`);
-    }
-    if (enabled === this.speakerFilter) return;
-    this.master.disconnect();
-    if (enabled) {
-      if (!this.filters) {
-        const highpass = this.ctx.createBiquadFilter();
-        highpass.type = 'highpass';
-        highpass.frequency.value = SPEAKER_HIGHPASS_HZ;
-        const lowpass = this.ctx.createBiquadFilter();
-        lowpass.type = 'lowpass';
-        lowpass.frequency.value = SPEAKER_LOWPASS_HZ;
-        this.filters = { highpass, lowpass };
-      }
-      const { highpass, lowpass } = this.filters;
-      this.master.connect(highpass);
-      highpass.connect(lowpass);
-      lowpass.connect(this.ctx.destination);
-    } else if (this.filters) {
-      this.filters.highpass.disconnect();
-      this.filters.lowpass.disconnect();
-      this.master.connect(this.ctx.destination);
-    }
-    this.speakerFilter = enabled;
   }
 
   /** 効果音を鳴らす。BGM とは別のボイスを使い、続けて呼ぶと重なる。L は無視して最後まで鳴らす */

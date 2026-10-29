@@ -228,12 +228,6 @@ try {
   const unmuted = await maxPeak(500);
   check(muted < 0.001 && unmuted > 0.005, `master を 0 にすると無音、100 に戻すと鳴る（${muted.toFixed(4)} → ${unmuted.toFixed(3)}）`);
 
-  await page.check('#speaker-filter');
-  const filtered = await maxPeak(500);
-  await page.uncheck('#speaker-filter');
-  const unfiltered = await maxPeak(500);
-  check(filtered > 0.001 && unfiltered > 0.005, `スピーカー風フィルターを切り替えても分析器に音が届く（${filtered.toFixed(3)}、${unfiltered.toFixed(3)}）`);
-
   await page.click('#mml-fade');
   await page.waitForTimeout(1500);
   const faded = await maxPeak(500);

@@ -32,7 +32,6 @@ jumpButton.addEventListener('click', () => {
 | `audio.pauseBgm()` / `audio.resumeBgm()` | BGM を一時停止する・続ける |
 | `audio.playSe(song)` | 効果音を鳴らす |
 | `audio.setVolume({ master?, bgm?, se? })` | 音量を変える |
-| `audio.setSpeakerFilter(enabled)` | スピーカー風フィルターを入れる・外す |
 | `audio.on(type, handler)` | イベントを受ける。解除する関数を返す |
 | `audio.output` | `destination` の直前のノード（`AudioNode`）。分析器などをつなぐ用 |
 | `audio.context` / `audio.engine` | 内部の `AudioContext` と `FmEngine` |
@@ -105,13 +104,6 @@ jumpButton.addEventListener('click', () => {
 - 渡した値を全部検査してから変える。1 つでも範囲外なら、何も変えずに `RangeError`。
 - フェード（`stopBgm`）は `bgm` の音量とは別の倍率で、2 つは掛け合わせて効く。フェード中に `setVolume({ bgm })` を呼んでも、フェードは続く。
 - フェードで下げた倍率は、止めたときには 1 に戻さない。次の `playBgm` で、新しい曲の頭（呼んでから 0.05 秒後）に向けて 1 へ戻す。止めた直後は前の曲のリリースが残るため、戻すとそれが全音量で鳴ってしまうから。
-
-### `setSpeakerFilter(enabled)`
-
-- `true` で、出力の最後にハイパス（300 Hz）とローパス（7 kHz）を入れて、小さなスピーカー風にする。`false` で外す。既定はオフ。
-- 周波数は暫定で、M6 の試聴で調整する。
-- 切り替えると `output` が変わる（オンのときはローパス、オフのときは内部の出力）。`output` につないでいたノードは外れるので、切り替えたら `audio.output` につなぎ直す。
-- `enabled` が真偽値でなければ `RangeError`。
 
 ### `on(type, handler)`
 
