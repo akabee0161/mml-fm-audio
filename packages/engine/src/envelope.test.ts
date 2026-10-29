@@ -92,6 +92,18 @@ describe('Envelope', () => {
     expect(env.attenuation).toBeGreaterThan(before);
   });
 
+  it('SL=0 なら DR=0 と DR=1 の出力はサンプル単位で同じ', () => {
+    for (const ar of [15, 10]) {
+      const outputs = [0, 1].map((dr) => {
+        const env = new Envelope(SR);
+        env.keyOn(op({ ar, dr, sl: 0, sr: 8 }), 60);
+        return run(env, 3000);
+      });
+      expect(outputs[0]).toEqual(outputs[1]);
+      expect(outputs[0]!.at(-1)).toBe(96);
+    }
+  });
+
   it('SL=15 はディケイで無音まで下がって off になる', () => {
     const env = new Envelope(SR);
     env.keyOn(op({ dr: 15, sl: 15 }), 60);
