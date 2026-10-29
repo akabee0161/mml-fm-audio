@@ -176,8 +176,8 @@ function setupMml(audio: FmAudio, wake: () => void): void {
   });
 }
 
-/** 効果音のボタンと、音量・フィルターの操作 */
-function setupMixer(audio: FmAudio, wake: () => void, onFilterChange: () => void): void {
+/** 効果音のボタンと、音量の操作 */
+function setupMixer(audio: FmAudio, wake: () => void): void {
   const container = byId('se-buttons');
   for (const se of SOUND_EFFECTS) {
     const song = audio.load(se.mml);
@@ -207,14 +207,9 @@ function setupMixer(audio: FmAudio, wake: () => void, onFilterChange: () => void
       audio.setVolume({ [key]: Number(input.value) / 100 });
     });
   }
-
-  byId<HTMLInputElement>('speaker-filter').addEventListener('change', (e) => {
-    audio.setSpeakerFilter((e.target as HTMLInputElement).checked);
-    onFilterChange();
-  });
 }
 
-function setup(audio: FmAudio, onFilterChange: () => void): void {
+function setup(audio: FmAudio): void {
   const { engine } = audio;
   const context = audio.context as AudioContext;
   const voices = bundledVoices();
@@ -307,7 +302,7 @@ function setup(audio: FmAudio, onFilterChange: () => void): void {
 
   // MML の @N で使う GM 音色とドラムは、FmAudio.init が登録済み
   setupMml(audio, wake);
-  setupMixer(audio, wake, onFilterChange);
+  setupMixer(audio, wake);
 
   audio.on('warning', (message) => {
     const li = document.createElement('li');
@@ -471,20 +466,18 @@ byId('start').addEventListener('click', async () => {
     context = new AudioContext();
     void context.resume();
     const audio = await FmAudio.init({ context });
-    // 分析器は audio.output につなぐ。フィルターを切り替えると output が変わるので、つなぎ直す
-    let reconnectAnalyser = () => {};
+    // 分析器は audio.output につなぐ
     if (new URLSearchParams(location.search).has('debug')) {
       const splitter = context.createChannelSplitter(2);
       const left = context.createAnalyser();
       const right = context.createAnalyser();
       splitter.connect(left, 0);
       splitter.connect(right, 1);
-      reconnectAnalyser = () => audio.output.connect(splitter);
-      reconnectAnalyser();
+      audio.output.connect(splitter);
       exposeDebug(left, right);
     }
     await audio.resume();
-    setup(audio, reconnectAnalyser);
+    setup(audio);
     button.hidden = true;
     byId('controls').hidden = false;
   } catch (e) {

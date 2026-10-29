@@ -1,13 +1,11 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { FmAudio, type AudioContextLike, type BiquadFilterNodeLike, type GainNodeLike, type RuntimeEngine } from './fmAudio.ts';
+import { FmAudio, type AudioContextLike, type GainNodeLike, type RuntimeEngine } from './fmAudio.ts';
 
 const SR = 48000;
 
 function fakeContext() {
   const gains: GainNodeLike[] = [];
   const connections: Array<{ from: unknown; to: unknown; output?: number }> = [];
-  const disconnected: unknown[] = [];
-  const filters: BiquadFilterNodeLike[] = [];
   const param = () => ({
     value: 1,
     setValueAtTime: vi.fn(),
@@ -24,17 +22,12 @@ function fakeContext() {
     resume: vi.fn(async () => {}),
     suspend: vi.fn(async () => {}),
     createGain() {
-      const node: GainNodeLike = { gain: param(), connect: (to, output) => void connections.push({ from: node, to, output }), disconnect: () => void disconnected.push(node) };
+      const node: GainNodeLike = { gain: param(), connect: (to, output) => void connections.push({ from: node, to, output }) };
       gains.push(node);
       return node;
     },
-    createBiquadFilter() {
-      const node: BiquadFilterNodeLike = { type: "lowpass", frequency: param(), Q: param(), connect: (to, output) => void connections.push({ from: node, to, output }), disconnect: () => void disconnected.push(node) };
-      filters.push(node);
-      return node;
-    },
   } satisfies AudioContextLike;
-  return { context, gains, connections, destination, disconnected, filters };
+  return { context, gains, connections, destination };
 }
 
 type NoteOn = { id: number; program: number; note: number; time: number; group: string };
@@ -725,33 +718,6 @@ describe('FmAudio', () => {
     audio.resumeBgm();
     audio.resumeBgm();
     expect(vi.getTimerCount()).toBe(1);
-  });
-
-  it('setSpeakerFilter(true) で master → 300 Hz ハイパス → 7000 Hz ローパス → destination、false で戻す', () => {
-    const { audio, gains, connections, destination, disconnected, filters } = setup();
-    const master = gains[3]!;
-    expect(audio.output).toBe(master);
-    connections.length = 0;
-    audio.setSpeakerFilter(true);
-    const [hp, lp] = filters as [BiquadFilterNodeLike, BiquadFilterNodeLike];
-    expect(hp.type).toBe('highpass');
-    expect(hp.frequency.value).toBe(300);
-    expect(lp.type).toBe('lowpass');
-    expect(lp.frequency.value).toBe(7000);
-    expect(disconnected).toContain(master);
-    expect(connections).toEqual([
-      { from: master, to: hp, output: undefined },
-      { from: hp, to: lp, output: undefined },
-      { from: lp, to: destination, output: undefined },
-    ]);
-    expect(audio.output).toBe(lp);
-    connections.length = 0;
-    disconnected.length = 0;
-    audio.setSpeakerFilter(false);
-    expect(disconnected).toEqual(expect.arrayContaining([master, hp, lp]));
-    expect(connections).toEqual([{ from: master, to: destination, output: undefined }]);
-    expect(audio.output).toBe(master);
-    expect(() => audio.setSpeakerFilter(1 as never)).toThrow(RangeError);
   });
 
   it('タブが裏に回ると suspend し、表に戻ると resume する', () => {
