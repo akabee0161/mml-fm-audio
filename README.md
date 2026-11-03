@@ -62,10 +62,9 @@ Node 22.18 以上が必要（`tools/` の `.ts` を Node で直接実行する�
 
 ## 暫定値
 
-次の値は独自に決めた暫定値で、試聴で調整してよい。
+次の値は独自に決めた暫定値で、試聴で調整してよい。エンベロープのレート・アタック・キースケール、KSL の起点、DT、LFO、変調の強さ（`MOD_INDEX`）、波形 7・27 は、実機に近い音源の録音と比べて決めた値で、暫定ではない（`docs/spec.md` §2.2）。
 
-- `packages/engine/src/tables.ts`：`BO_TABLE`（bo=0 を標準の高さとする）、`DT_CENTS`、`TL_DB_PER_STEP`、`SL_DB_PER_STEP`、`MOD_INDEX`、`OUTPUT_GAIN`、`MIX_GAIN`（全ボイスの和に掛ける係数）
-- `packages/engine/src/envelope.ts`：`RATE15_DB_PER_SEC`、`ATTACK_SPEEDUP`、KSR の効き方
+- `packages/engine/src/tables.ts`：`BO_TABLE`（bo=0 を標準の高さとする）、`TL_DB_PER_STEP`、`SL_DB_PER_STEP`、`OUTPUT_GAIN`、`MIX_GAIN`（全ボイスの和に掛ける係数）
 - `packages/engine/src/output.ts`：パンの効き方（等パワー、64 を中央）
 - `packages/engine/src/voicePool.ts`：`MAX_VOICES`（BGM の同時発音数）、`SE_VOICES`（効果音のボイス数）。負荷の実測を見て見直す
 - `packages/sequencer/src/player.ts`：`VOLUME_DB_PER_STEP`（`v` の 1 段の dB。3 dB、`v15` が 0 dB）
