@@ -3,7 +3,7 @@ import { OP_FIELDS, type FmVoice } from '@mml-fm-audio/engine';
 /** 音色の値を読み取り専用の表で見せる */
 export function renderParams(container: HTMLElement, voice: FmVoice): void {
   const summary = document.createElement('p');
-  summary.textContent = `id: ${voice.id ?? 'なし'} / name: ${voice.name} / alg: ${voice.alg} / bo: ${voice.bo} / lfo: ${voice.lfo}`;
+  summary.textContent = `id: ${voice.id ?? 'なし'} / name: ${voice.name} / alg: ${voice.alg} / bo: ${voice.bo} / lfo: ${voice.lfo} / vibrato: ${voice.vibrato === true ? '入' : '切'}`;
 
   const table = document.createElement('table');
   const head = table.createTHead().insertRow();

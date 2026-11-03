@@ -194,7 +194,7 @@ describe('VoicePool', () => {
   });
 
   it('LFO はボイスごとで、ノートオンで先頭に戻る', () => {
-    const vib: FmVoice = { ...sustain, lfo: 3, ops: [op({ vib: 1, vibDepth: 3 }), op({ tl: 63 })] };
+    const vib: FmVoice = { ...sustain, lfo: 3, vibrato: true, ops: [op({ vib: 1, vibDepth: 3 }), op({ tl: 63 })] };
     const one = new VoicePool(SR);
     one.register(0, vib);
     one.noteOn(1, 0, 60, 0);
@@ -210,7 +210,7 @@ describe('VoicePool', () => {
   });
 
   it('LFO の速さは音色ごと', () => {
-    const slow: FmVoice = { ...sustain, lfo: 0, ops: [op({ vib: 1, vibDepth: 3 }), op({ tl: 63 })] };
+    const slow: FmVoice = { ...sustain, lfo: 0, vibrato: true, ops: [op({ vib: 1, vibDepth: 3 }), op({ tl: 63 })] };
     const fast: FmVoice = { ...slow, lfo: 3 };
     const solo = (timbre: FmVoice, pan: number): Float32Array => {
       const pool = new VoicePool(SR);

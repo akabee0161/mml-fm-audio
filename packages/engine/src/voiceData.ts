@@ -29,6 +29,8 @@ export interface FmVoice {
   bo: number;
   alg: number;
   lfo: number;
+  /** true のときだけ、オペレーターの vib（ビブラート）が効く。省略は切 */
+  vibrato?: boolean;
   ops: FmOperator[];
 }
 
@@ -129,6 +131,10 @@ export function validateVoice(input: unknown): ValidationResult {
   const bo = checkInt(input.bo, BO_RANGE, 'bo', errors);
   const alg = checkInt(input.alg, ALG_RANGE, 'alg', errors);
   const lfo = checkInt(input.lfo, LFO_RANGE, 'lfo', errors);
+  const vibrato = input.vibrato;
+  if (vibrato !== undefined && typeof vibrato !== 'boolean') {
+    errors.push({ path: 'vibrato', message: 'true か false を指定してください（省略すると切）' });
+  }
 
   const ops: FmOperator[] = [];
   if (!Array.isArray(input.ops)) {
@@ -152,7 +158,9 @@ export function validateVoice(input: unknown): ValidationResult {
   }
 
   if (errors.length > 0) return { ok: false, errors };
-  return { ok: true, voice: { id, name: name as string, kind: 'fm', bo, alg, lfo, ops } };
+  const voice: FmVoice = { id, name: name as string, kind: 'fm', bo, alg, lfo, ops };
+  if (typeof vibrato === 'boolean') voice.vibrato = vibrato;
+  return { ok: true, voice };
 }
 
 /**

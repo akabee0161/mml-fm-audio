@@ -57,6 +57,7 @@ Node 22.18 以上が必要（`tools/` の `.ts` を Node で直接実行する�
 
 - 形式は `docs/spec.md` §3.2。検証は `packages/engine/src/voiceData.ts` の `validateVoice`。
 - `voices/ymf825/` は YMF825_sample（Copyright (c) 2017 Yamaha Corporation, MIT License）由来。出典とライセンス全文は `voices/LICENSE-YMF825.txt`。
+- ビブラートは、音色の `vibrato` が `true` のときだけ効く（省略は切）。`voices/ymf825/` の音色は `vibrato` を持たないので、オペレーターの `vib` が 1 でも揺れない。
 - 16 音色は GM の楽器番号に割り当てた（`tools/ymf825.ts` の `GM_ASSIGNMENTS`）。Rim Shot と Castanet は当てはまる番号がないため `id: null` で `unassigned.json` に置いている。
 - ドラム 8 種は独自の音色で、`voices/custom/drums.json`（番号 128〜135：bd・sd・ch・oh・cy・lt・ht・cp）。形式は `docs/spec.md` §3.4、検証は `validateDrum`。値は暫定で、M6 で調整してよい。
 

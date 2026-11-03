@@ -48,6 +48,8 @@ export class Voice {
   private hasPitch = false;
   // ピッチベンド（FM）：全オペレーターの周波数にかける倍率
   private bendRatio = 1;
+  // 音色の vibrato が true のときだけ、オペレーターの vib を効かせる
+  private vibratoOn = false;
 
   // ノイズ部（ドラム）
   private noiseParams: DrumNoise | null = null;
@@ -157,6 +159,7 @@ export class Voice {
 
   private startFm(voice: FmVoice, note: number): void {
     this.fm = voice;
+    this.vibratoOn = voice.vibrato === true;
     this.lfo.setRate(voice.lfo);
     this.lfo.reset();
     const alg = ALGORITHMS[voice.alg]!;
@@ -225,7 +228,7 @@ export class Voice {
       }
 
       let inc = this.increment[i]! * pitchRatio * this.bendRatio;
-      if (op.vib) inc *= 2 ** ((-lfo * VIB_DEPTH_CENTS[op.vibDepth]!) / 1200);
+      if (this.vibratoOn && op.vib) inc *= 2 ** ((-lfo * VIB_DEPTH_CENTS[op.vibDepth]!) / 1200);
       this.phase[i] = (this.phase[i]! + inc) % 1;
     }
     let mix = 0;

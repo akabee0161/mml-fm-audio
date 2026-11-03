@@ -88,6 +88,24 @@ describe('validateVoice', () => {
     if (!result.ok) return;
     expect(Object.keys(result.voice)).toEqual(['id', 'name', 'kind', 'bo', 'alg', 'lfo', 'ops']);
   });
+
+  it('vibrato は省略でき、true・false はそのまま返す', () => {
+    for (const vibrato of [true, false]) {
+      const result = validateVoice(voice({ vibrato }));
+      expect(result.ok).toBe(true);
+      if (result.ok) expect(result.voice.vibrato).toBe(vibrato);
+    }
+    const omitted = validateVoice(voice());
+    expect(omitted.ok && omitted.voice.vibrato).toBe(undefined);
+  });
+
+  it('vibrato が真偽値でなければエラー', () => {
+    for (const vibrato of [1, 'true', null]) {
+      const result = validateVoice(voice({ vibrato }));
+      expect(result.ok).toBe(false);
+      if (!result.ok) expect(result.errors.map((e) => e.path)).toEqual(['vibrato']);
+    }
+  });
 });
 
 describe('validateDrum', () => {

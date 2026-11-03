@@ -128,13 +128,21 @@ describe('Voice', () => {
 
   it('ビブラートは鳴り始めがいちばん高い', () => {
     const crossings = (vib: number): number => {
-      const timbre = fmVoice(1, [op({ vib, vibDepth: 3 }), op({ tl: 63 })]);
+      const timbre = { ...fmVoice(1, [op({ vib, vibDepth: 3 }), op({ tl: 63 })]), vibrato: true };
       const { left } = renderStereo(timbre, 120, 2400);
       let n = 0;
       for (let i = 1; i < left.length; i++) if (left[i - 1]! < 0 && left[i]! >= 0) n++;
       return n;
     };
     expect(crossings(1)).toBeGreaterThan(crossings(0));
+  });
+
+  it('音色の vibrato が true でなければ、オペレーターの vib は効かない（既定は切）', () => {
+    const plain = renderStereo(fmVoice(1, [op(), op({ tl: 63 })]), 120, 2400).left;
+    const ops = [op({ vib: 1, vibDepth: 3 }), op({ tl: 63 })];
+    expect(Array.from(renderStereo(fmVoice(1, ops), 120, 2400).left)).toEqual(Array.from(plain));
+    expect(Array.from(renderStereo({ ...fmVoice(1, ops), vibrato: false }, 120, 2400).left)).toEqual(Array.from(plain));
+    expect(Array.from(renderStereo({ ...fmVoice(1, ops), vibrato: true }, 120, 2400).left)).not.toEqual(Array.from(plain));
   });
 
   it('キーオフ後はリリースを経て止まり、何も足さない', () => {
