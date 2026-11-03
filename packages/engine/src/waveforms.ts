@@ -58,7 +58,8 @@ export function waveValue(wave: number, x: number): number {
   if (!Number.isFinite(x) || x < 0 || x >= 1) {
     throw new RangeError(`waveValue: x は 0 以上 1 未満の数にしてください（x=${x}）`);
   }
-  // 27 は他の切り出しと違い、前半が 4x（傾きが 2 倍）で、0.5〜0.625 にもう一つ山がある
+  // 27 は他の切り出しと違い、前半が 4x（傾きが 2 倍）で、0.5〜0.625 にもう一つ山がある。
+  // 3・11・19 が使う一般の規則（三角波の土台に切り出し 3 を当てる）を置き換える
   if (wave === 27) return x < 0.25 ? 4 * x : x >= 0.5 && x < 0.625 ? 2 * (x - 0.5) : 0;
   const variant = wave & 7;
   if (variant >= 6) return special(wave, x);

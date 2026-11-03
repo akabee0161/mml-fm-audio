@@ -206,6 +206,17 @@ describe('Voice', () => {
     const fed = play(fmVoice(1, [op({ tl: 63 }), op({ fb: 7 })]), 69, 480);
     expect(Array.from(fed)).toEqual(Array.from(plain));
   });
+
+  it('KSL はノート 30 から効き、それより低い音では効かない', () => {
+    const timbre = fmVoice(1, [op({ ksl: 3 }), op({ tl: 63 })]);
+    const p18 = peak(play(timbre, 18, 4800));
+    const p30 = peak(play(timbre, 30, 4800));
+    const p54 = peak(play(timbre, 54, 4800));
+    expect(p18).toBeCloseTo(p30, 6);
+    // ksl 3 は 1 オクターブあたり 6 dB。ノート 54 は 30 から 2 オクターブ上なので -12 dB
+    expect(20 * Math.log10(p54 / p30)).toBeGreaterThan(-12.2);
+    expect(20 * Math.log10(p54 / p30)).toBeLessThan(-11.8);
+  });
 });
 
 describe('Voice（ドラム）', () => {
