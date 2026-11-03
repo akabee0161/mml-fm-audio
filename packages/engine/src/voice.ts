@@ -6,6 +6,7 @@ import {
   AM_DEPTH_DB,
   FB_RAD,
   KSL_DB_PER_OCT,
+  keyCode,
   MOD_INDEX,
   OUTPUT_GAIN,
   SILENT_DB,
@@ -165,14 +166,14 @@ export class Voice {
       this.staticDb[i] = op.tl * TL_DB_PER_STEP + KSL_DB_PER_OCT[op.ksl]! * octavesAboveC4;
       this.feedbackGain[i] = alg.feedback.includes(i) ? FB_RAD[op.fb]! : 0;
       this.tables[i] = WAVE_TABLES[op.wave]!;
-      this.envelopes[i]!.keyOn(op, note);
+      this.envelopes[i]!.keyOn(op, keyCode(note, voice.bo));
     }
   }
 
   private keyOnNoise(): void {
     const n = this.noiseParams!;
     // SL に達した後は rr の速さで下がる（ドラムにはキーオフが来ないため）
-    this.noiseEnvelope.keyOn({ ar: n.ar, dr: n.dr, sl: n.sl, sr: n.rr, rr: n.rr, ksr: 0, xof: 0 }, 60);
+    this.noiseEnvelope.keyOn({ ar: n.ar, dr: n.dr, sl: n.sl, sr: n.rr, rr: n.rr, ksr: 0, xof: 0 }, keyCode(60, 0));
   }
 
   private sampleNoise(n: DrumNoise): number {

@@ -6,37 +6,32 @@ export type EnvelopeParams = Pick<FmOperator, 'ar' | 'dr' | 'sl' | 'sr' | 'rr' |
 
 export type EnvelopePhase = 'attack' | 'decay' | 'sustain' | 'release' | 'off';
 
-/** レート 15 の減衰速度（暫定） */
-const RATE15_DB_PER_SEC = 16000;
-/** アタックは同じレートのディケイより何倍速いか（暫定） */
-const ATTACK_SPEEDUP = 8;
-/** アタックを終えたとみなす減衰量 */
-const ATTACK_END_DB = 0.1;
-
-/** レート（0〜15、小数可）→ 1 秒あたりに下がる dB。0 は変化しない */
-export function decayDbPerSec(rate: number): number {
-  return rate <= 0 ? 0 : RATE15_DB_PER_SEC * 2 ** (rate - 15);
-}
-
-/** アタックにかかる秒数。15 は 0、0 は鳴り始めない */
-export function attackSeconds(rate: number): number {
-  if (rate <= 0) return Infinity;
-  if (rate >= 15) return 0;
-  return SILENT_DB / decayDbPerSec(rate) / ATTACK_SPEEDUP;
-}
-
-/** KSR を反映した実効レート。ノート 60 より上は 2 オクターブごとに 1 上げる */
-export function effectiveRate(rate: number, ksr: number, note: number): number {
+/** レート（0〜15）・KSR・キーコードからレートの番号（0〜63）を求める。レート 0 は 0 のまま */
+export function rateIndex(rate: number, ksr: number, kc: number): number {
   if (rate === 0) return 0;
-  const offset = ksr ? Math.max(0, note - 60) / 24 : 0;
-  return Math.min(15, rate + offset);
+  return Math.min(63, 4 * rate + (ksr ? kc >> 1 : kc >> 3));
+}
+
+/** レートの番号 → 1 秒あたりに下がる dB。0 は変化しない */
+export function decayDbPerSec(idx: number): number {
+  if (idx === 0) return 0;
+  return 36600 * (1 + (idx & 3) / 4) * 2 ** ((idx >> 2) - 15);
+}
+
+/** レートの番号 → アタックにかかる秒数。0 は鳴り始めない、60 以上は一瞬 */
+export function attackSeconds(idx: number): number {
+  if (idx === 0) return Infinity;
+  if (idx >= 60) return 0;
+  return 6.17 / ((1 + (idx & 3) / 4) * 2 ** (idx >> 2));
 }
 
 export class Envelope {
   phase: EnvelopePhase = 'off';
   attenuation = SILENT_DB;
 
-  private attackFactor = 1;
+  /** アタック中の振幅（0〜1）。時間に比例して上がる */
+  private amp = 0;
+  private attackStep = 0;
   private decayStep = 0;
   private sustainStep = 0;
   private releaseStep = 0;
@@ -45,21 +40,20 @@ export class Envelope {
 
   constructor(private readonly sampleRate: number) {}
 
-  keyOn(op: EnvelopeParams, note: number): void {
-    const rate = (r: number) => effectiveRate(r, op.ksr, note);
-    const perSample = (r: number) => decayDbPerSec(rate(r)) / this.sampleRate;
-
-    const attack = attackSeconds(rate(op.ar));
-    this.attackFactor =
-      attack === Infinity ? 1 : attack === 0 ? 0 : Math.exp(Math.log(ATTACK_END_DB / SILENT_DB) / (attack * this.sampleRate));
-    this.decayStep = perSample(op.dr);
-    this.sustainStep = perSample(op.sr);
-    this.releaseStep = perSample(op.rr);
+  /** kc はキーコード（0〜31。tables.ts の keyCode） */
+  keyOn(op: EnvelopeParams, kc: number): void {
+    const sr = this.sampleRate;
+    const seconds = attackSeconds(rateIndex(op.ar, op.ksr, kc));
+    this.attackStep = seconds === Infinity ? 0 : 1 / (seconds * sr);
+    this.decayStep = decayDbPerSec(rateIndex(op.dr, op.ksr, kc)) / sr;
+    this.sustainStep = decayDbPerSec(rateIndex(op.sr, op.ksr, kc)) / sr;
+    this.releaseStep = decayDbPerSec(rateIndex(op.rr, op.ksr, kc)) / sr;
     this.sustainLevel = op.sl >= 15 ? SILENT_DB : op.sl * SL_DB_PER_STEP;
     this.ignoreKeyOff = op.xof === 1;
 
+    this.amp = this.attenuation >= SILENT_DB ? 0 : 10 ** (-this.attenuation / 20);
     this.phase = 'attack';
-    if (this.attackFactor === 0) {
+    if (seconds === 0) {
       this.attenuation = 0;
       this.phase = 'decay';
     }
@@ -79,10 +73,12 @@ export class Envelope {
   next(): number {
     switch (this.phase) {
       case 'attack':
-        this.attenuation *= this.attackFactor;
-        if (this.attenuation <= ATTACK_END_DB) {
+        this.amp += this.attackStep;
+        if (this.amp >= 1) {
           this.attenuation = 0;
           this.phase = 'decay';
+        } else {
+          this.attenuation = this.amp > 0 ? Math.min(SILENT_DB, -20 * Math.log10(this.amp)) : SILENT_DB;
         }
         return this.attenuation;
       case 'decay':

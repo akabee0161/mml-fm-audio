@@ -1,4 +1,25 @@
-import { DT_CENTS, MUL_TABLE, operatorFrequency } from './tables';
+import { DT_CENTS, MUL_TABLE, keyCode, operatorFrequency } from './tables';
+
+describe('keyCode', () => {
+  it('ノートからキーコードを求める（ブロックは G で変わる）', () => {
+    expect(keyCode(60, 0)).toBe(15);
+    expect(keyCode(36, 0)).toBe(7);
+    expect(keyCode(42, 0)).toBe(7);
+    expect(keyCode(43, 0)).toBe(10);
+    expect(keyCode(45, 0)).toBe(10);
+    expect(keyCode(46, 0)).toBe(11);
+  });
+
+  it('BO 1 は 12 下げて数える', () => {
+    expect(keyCode(72, 1)).toBe(keyCode(60, 0));
+  });
+
+  it('block は 0〜7 に止まる', () => {
+    expect(keyCode(0, 3)).toBe(3);
+    expect(keyCode(127, 0)).toBe(30);
+    expect(keyCode(126, 0)).toBe(31);
+  });
+});
 
 describe('MUL_TABLE', () => {
   it('IF 仕様書の倍率どおりで、線形でない', () => {

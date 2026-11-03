@@ -67,3 +67,15 @@ export function operatorFrequency(note: number, bo: number, mul: number, dt: num
 
 /** 全ボイスの左右の和に掛ける係数（暫定。中央の 1 音は M1 の約 0.35 倍になる） */
 export const MIX_GAIN = 0.5;
+
+/**
+ * ノート番号と BO からキーコード（0〜31）を求める。
+ * n = ノート − 12 × BO。block は G（43・55・67…）で変わり、sub は音名の位置で 2 か 3
+ * （sub の境目は推測）。
+ */
+export function keyCode(note: number, bo: number): number {
+  const n = note - 12 * bo;
+  const block = Math.min(7, Math.max(0, Math.floor((n - 43) / 12) + 2));
+  const k = (((n - 43) % 12) + 12) % 12;
+  return 4 * block + (k <= 2 ? 2 : 3);
+}
