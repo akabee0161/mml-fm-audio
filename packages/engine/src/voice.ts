@@ -5,8 +5,8 @@ import { panGains } from './output';
 import {
   AM_DEPTH_DB,
   FB_RAD,
-  KSL_DB_PER_OCT,
   keyCode,
+  kslAttenuation,
   MOD_INDEX,
   OUTPUT_GAIN,
   SILENT_DB,
@@ -156,17 +156,17 @@ export class Voice {
     this.fm = voice;
     const alg = ALGORITHMS[voice.alg]!;
     this.alg = alg;
-    const octavesAboveC4 = Math.max(0, (note - 60) / 12);
+    const kc = keyCode(note, voice.bo);
     for (let i = 0; i < alg.opCount; i++) {
       const op = voice.ops[i]!;
       this.phase[i] = 0;
       this.feedbackPrev1[i] = 0;
       this.feedbackPrev2[i] = 0;
       this.increment[i] = operatorFrequency(note, voice.bo, op.mul, op.dt) / this.sampleRate;
-      this.staticDb[i] = op.tl * TL_DB_PER_STEP + KSL_DB_PER_OCT[op.ksl]! * octavesAboveC4;
+      this.staticDb[i] = op.tl * TL_DB_PER_STEP + kslAttenuation(op.ksl, note);
       this.feedbackGain[i] = alg.feedback.includes(i) ? FB_RAD[op.fb]! : 0;
       this.tables[i] = WAVE_TABLES[op.wave]!;
-      this.envelopes[i]!.keyOn(op, keyCode(note, voice.bo));
+      this.envelopes[i]!.keyOn(op, kc);
     }
   }
 

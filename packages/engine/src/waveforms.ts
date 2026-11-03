@@ -38,7 +38,7 @@ function special(wave: number, x: number): number {
     case 6:
       return x < 0.5 ? 1 : -1;
     case 7:
-      return x < 0.5 ? 2 ** (-16 * x) : -(2 ** (-16 * (1 - x)));
+      return x < 0.5 ? 2 ** (-32 * x) : -(2 ** (-32 * (1 - x)));
     case 14:
       return x < 0.5 ? 1 : 0;
     case 22:
@@ -58,6 +58,8 @@ export function waveValue(wave: number, x: number): number {
   if (!Number.isFinite(x) || x < 0 || x >= 1) {
     throw new RangeError(`waveValue: x は 0 以上 1 未満の数にしてください（x=${x}）`);
   }
+  // 27 は他の切り出しと違い、前半が 4x（傾きが 2 倍）で、0.5〜0.625 にもう一つ山がある
+  if (wave === 27) return x < 0.25 ? 4 * x : x >= 0.5 && x < 0.625 ? 2 * (x - 0.5) : 0;
   const variant = wave & 7;
   if (variant >= 6) return special(wave, x);
   return cut(BASES[wave >> 3]!, variant, x);
