@@ -1,4 +1,3 @@
-import { Lfo } from './lfo';
 import { Voice } from './voice';
 import type { AnyVoice } from './voiceData';
 
@@ -8,7 +7,7 @@ export const MAX_VOICES = 16;
 /** 効果音用の同時発音数（BGM とは別に数える。暫定で、負荷の実測を見て見直す） */
 export const SE_VOICES = 4;
 
-/** 複数のボイスへの音の割り当てと、音源全体で 1 つの LFO */
+/** 複数のボイスへの音の割り当て（LFO は各ボイスが持つ） */
 export class VoicePool {
   private readonly voices: Voice[];
   /** ボイスごとの、鳴らしている音の ID（なければ null） */
@@ -18,8 +17,6 @@ export class VoicePool {
   /** ボイスごとの、noteOff を受けた順番（0 はキーオン中） */
   private readonly releasedAt: number[];
   private readonly programs = new Map<number, AnyVoice>();
-  private readonly lfo: Lfo;
-  private lfoValues = new Float32Array(128);
   private counter = 0;
 
   constructor(sampleRate: number, size = MAX_VOICES) {
@@ -27,7 +24,6 @@ export class VoicePool {
     this.ids = this.voices.map(() => null);
     this.startedAt = this.voices.map(() => 0);
     this.releasedAt = this.voices.map(() => 0);
-    this.lfo = new Lfo(sampleRate);
   }
 
   /** 音色を番号に登録する。鳴っている音は前の音色のまま鳴り終える */
@@ -40,7 +36,6 @@ export class VoicePool {
     const timbre = this.programs.get(program);
     if (!timbre) return false;
     const index = this.allocate();
-    if (timbre.kind === 'fm') this.lfo.setRate(timbre.lfo);
     this.voices[index]!.noteOn(timbre, note, pan, volume, bend);
     this.ids[index] = id;
     this.startedAt[index] = ++this.counter;
@@ -84,9 +79,7 @@ export class VoicePool {
 
   /** left/right の [from, to) に足し込む */
   render(left: Float32Array, right: Float32Array, from: number, to: number): void {
-    if (this.lfoValues.length < to) this.lfoValues = new Float32Array(to);
-    for (let s = from; s < to; s++) this.lfoValues[s] = this.lfo.next();
-    for (const voice of this.voices) voice.render(left, right, from, to, this.lfoValues);
+    for (const voice of this.voices) voice.render(left, right, from, to);
   }
 
   get activeCount(): number {

@@ -1,5 +1,6 @@
 import { ALGORITHMS, type Algorithm } from './algorithms';
 import { Envelope } from './envelope';
+import { Lfo } from './lfo';
 import { Noise } from './noise';
 import { panGains } from './output';
 import {
@@ -52,6 +53,7 @@ export class Voice {
   private noiseParams: DrumNoise | null = null;
   private readonly noise = new Noise();
   private readonly noiseEnvelope: Envelope;
+  private readonly lfo: Lfo;
   private repeatsLeft = 0;
   private repeatInterval = 0;
   private repeatCounter = 0;
@@ -59,6 +61,7 @@ export class Voice {
   constructor(private readonly sampleRate: number) {
     this.envelopes = [0, 1, 2, 3].map(() => new Envelope(sampleRate));
     this.noiseEnvelope = new Envelope(sampleRate);
+    this.lfo = new Lfo(sampleRate);
   }
 
   /**
@@ -139,13 +142,13 @@ export class Voice {
     return this.noiseEnvelope.phase !== 'off' || this.repeatsLeft > 0;
   }
 
-  /** left/right の [from, to) に足し込む。lfo[s] はサンプル s の LFO 値（−1〜1） */
-  render(left: Float32Array, right: Float32Array, from: number, to: number, lfo: Float32Array): void {
+  /** left/right の [from, to) に足し込む */
+  render(left: Float32Array, right: Float32Array, from: number, to: number): void {
     if (!this.active) return;
     const gl = this.gainLeft;
     const gr = this.gainRight;
     for (let s = from; s < to; s++) {
-      let value = this.alg ? this.sampleFm(lfo[s]!) * this.fmLevel : 0;
+      let value = this.alg ? this.sampleFm() * this.fmLevel : 0;
       if (this.noiseParams) value += this.sampleNoise(this.noiseParams);
       left[s] = left[s]! + value * gl;
       right[s] = right[s]! + value * gr;
@@ -154,6 +157,8 @@ export class Voice {
 
   private startFm(voice: FmVoice, note: number): void {
     this.fm = voice;
+    this.lfo.setRate(voice.lfo);
+    this.lfo.reset();
     const alg = ALGORITHMS[voice.alg]!;
     this.alg = alg;
     const kc = keyCode(note, voice.bo);
@@ -189,7 +194,8 @@ export class Voice {
     return this.noise.next() * 10 ** (-db / 20) * n.level * OUTPUT_GAIN;
   }
 
-  private sampleFm(lfo: number): number {
+  private sampleFm(): number {
+    const lfo = this.lfo.next();
     const voice = this.fm!;
     const alg = this.alg!;
     const outputs = this.outputs;
@@ -219,7 +225,7 @@ export class Voice {
       }
 
       let inc = this.increment[i]! * pitchRatio * this.bendRatio;
-      if (op.vib) inc *= 2 ** ((lfo * VIB_DEPTH_CENTS[op.vibDepth]!) / 1200);
+      if (op.vib) inc *= 2 ** ((-lfo * VIB_DEPTH_CENTS[op.vibDepth]!) / 1200);
       this.phase[i] = (this.phase[i]! + inc) % 1;
     }
     let mix = 0;

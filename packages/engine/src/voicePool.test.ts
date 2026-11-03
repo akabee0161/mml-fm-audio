@@ -193,17 +193,40 @@ describe('VoicePool', () => {
     expect(Math.max(...left.map(Math.abs))).toBeGreaterThan(0.1);
   });
 
-  it('LFO は 1 系統で、ボイス数によらず 1 サンプルに 1 回進む', () => {
-    // ビブラートの音色を 1 音と 2 音で鳴らし、1 音目の波形が同じであることを確かめる
+  it('LFO はボイスごとで、ノートオンで先頭に戻る', () => {
     const vib: FmVoice = { ...sustain, lfo: 3, ops: [op({ vib: 1, vibDepth: 3 }), op({ tl: 63 })] };
     const one = new VoicePool(SR);
     one.register(0, vib);
     one.noteOn(1, 0, 60, 0);
+    const expected = render(one, 4800).left;
     const two = new VoicePool(SR);
     two.register(0, vib);
-    two.noteOn(1, 0, 60, 0);
-    two.noteOn(2, 0, 72, 127);
-    expect(Array.from(render(two, 4800).left)).toEqual(Array.from(render(one, 4800).left));
+    two.noteOn(1, 0, 72, 127);
+    render(two, 1000);
+    two.noteOn(2, 0, 60, 0);
+    // パン 127 の左は 1e-17 ほど漏れるので、一致は 1e-9 の誤差で見る
+    const actual = render(two, 4800).left;
+    for (let i = 0; i < actual.length; i++) expect(actual[i]).toBeCloseTo(expected[i]!, 9);
+  });
+
+  it('LFO の速さは音色ごと', () => {
+    const slow: FmVoice = { ...sustain, lfo: 0, ops: [op({ vib: 1, vibDepth: 3 }), op({ tl: 63 })] };
+    const fast: FmVoice = { ...slow, lfo: 3 };
+    const solo = (timbre: FmVoice, pan: number): Float32Array => {
+      const pool = new VoicePool(SR);
+      pool.register(0, timbre);
+      pool.noteOn(1, 0, 60, pan);
+      const r = render(pool, 9600);
+      return pan === 0 ? r.left : r.right;
+    };
+    const both = new VoicePool(SR);
+    both.register(0, slow);
+    both.register(1, fast);
+    both.noteOn(1, 0, 60, 0);
+    both.noteOn(2, 1, 60, 127);
+    const r = render(both, 9600);
+    expect(Array.from(r.left)).toEqual(Array.from(solo(slow, 0)));
+    expect(Array.from(r.right)).toEqual(Array.from(solo(fast, 127)));
   });
 
   it('setPitchBend・setVolume は奪われた ID では何もしない', () => {
