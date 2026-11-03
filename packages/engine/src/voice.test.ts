@@ -29,7 +29,7 @@ function renderStereo(timbre: AnyVoice, note: number, samples: number, pan = 64)
   v.noteOn(timbre, note, pan);
   const left = new Float32Array(samples);
   const right = new Float32Array(samples);
-  v.render(left, right, 0, samples, new Float32Array(samples));
+  v.render(left, right, 0, samples);
   return { left, right };
 }
 
@@ -64,7 +64,7 @@ describe('Voice', () => {
     const v = new Voice(SR);
     const left = new Float32Array(100);
     const right = new Float32Array(100);
-    v.render(left, right, 0, 100, new Float32Array(100));
+    v.render(left, right, 0, 100);
     expect(peak(left) + peak(right)).toBe(0);
     expect(v.active).toBe(false);
   });
@@ -126,18 +126,36 @@ describe('Voice', () => {
     expect(diff).toBeGreaterThan(0.05);
   });
 
+  it('ビブラートは鳴り始めがいちばん高い', () => {
+    const crossings = (vib: number): number => {
+      const timbre = { ...fmVoice(1, [op({ vib, vibDepth: 3 }), op({ tl: 63 })]), vibrato: true };
+      const { left } = renderStereo(timbre, 120, 2400);
+      let n = 0;
+      for (let i = 1; i < left.length; i++) if (left[i - 1]! < 0 && left[i]! >= 0) n++;
+      return n;
+    };
+    expect(crossings(1)).toBeGreaterThan(crossings(0));
+  });
+
+  it('音色の vibrato が true でなければ、オペレーターの vib は効かない（既定は切）', () => {
+    const plain = renderStereo(fmVoice(1, [op(), op({ tl: 63 })]), 120, 2400).left;
+    const ops = [op({ vib: 1, vibDepth: 3 }), op({ tl: 63 })];
+    expect(Array.from(renderStereo(fmVoice(1, ops), 120, 2400).left)).toEqual(Array.from(plain));
+    expect(Array.from(renderStereo({ ...fmVoice(1, ops), vibrato: false }, 120, 2400).left)).toEqual(Array.from(plain));
+    expect(Array.from(renderStereo({ ...fmVoice(1, ops), vibrato: true }, 120, 2400).left)).not.toEqual(Array.from(plain));
+  });
+
   it('キーオフ後はリリースを経て止まり、何も足さない', () => {
     const v = new Voice(SR);
     v.noteOn(fmVoice(1, [op({ rr: 15 }), op({ rr: 15 })]), 69, 64);
     const left = new Float32Array(1000);
     const right = new Float32Array(1000);
-    const lfo = new Float32Array(1000);
-    v.render(left, right, 0, 1000, lfo);
+    v.render(left, right, 0, 1000);
     v.noteOff();
-    v.render(left, right, 0, 1000, lfo);
+    v.render(left, right, 0, 1000);
     expect(v.active).toBe(false);
     left.fill(0.5);
-    v.render(left, right, 0, 1000, lfo);
+    v.render(left, right, 0, 1000);
     expect(left.every((x) => x === 0.5)).toBe(true);
   });
 
@@ -147,7 +165,7 @@ describe('Voice', () => {
     const left = new Float32Array(100).fill(0.5);
     const right = new Float32Array(100).fill(0.5);
     const solo = renderStereo(fmVoice(1, [op(), op()]), 69, 10);
-    v.render(left, right, 10, 20, new Float32Array(100));
+    v.render(left, right, 10, 20);
     expect(left[9]).toBe(0.5);
     expect(left[20]).toBe(0.5);
     for (let i = 0; i < 10; i++) expect(left[10 + i]).toBeCloseTo(0.5 + solo.left[i]!, 6);
@@ -167,12 +185,11 @@ describe('Voice', () => {
     const v = new Voice(SR);
     const left = new Float32Array(100);
     const right = new Float32Array(100);
-    const lfo = new Float32Array(100);
     v.noteOn(fmVoice(1, [op(), op()]), 69, 64);
-    v.render(left, right, 0, 100, lfo);
+    v.render(left, right, 0, 100);
     v.noteOn(fmVoice(4, [op(), op(), op(), op()]), 69, 64);
     left.fill(0);
-    expect(() => v.render(left, right, 0, 100, lfo)).not.toThrow();
+    expect(() => v.render(left, right, 0, 100)).not.toThrow();
     expect(peak(left)).toBeGreaterThan(0);
   });
 
@@ -197,6 +214,17 @@ describe('Voice', () => {
     const fed = play(fmVoice(1, [op({ tl: 63 }), op({ fb: 7 })]), 69, 480);
     expect(Array.from(fed)).toEqual(Array.from(plain));
   });
+
+  it('KSL はノート 30 から効き、それより低い音では効かない', () => {
+    const timbre = fmVoice(1, [op({ ksl: 3 }), op({ tl: 63 })]);
+    const p18 = peak(play(timbre, 18, 4800));
+    const p30 = peak(play(timbre, 30, 4800));
+    const p54 = peak(play(timbre, 54, 4800));
+    expect(p18).toBeCloseTo(p30, 6);
+    // ksl 3 は 1 オクターブあたり 6 dB。ノート 54 は 30 から 2 オクターブ上なので -12 dB
+    expect(20 * Math.log10(p54 / p30)).toBeGreaterThan(-12.2);
+    expect(20 * Math.log10(p54 / p30)).toBeLessThan(-11.8);
+  });
 });
 
 describe('Voice（ドラム）', () => {
@@ -209,9 +237,9 @@ describe('Voice（ドラム）', () => {
     const n = SR * 2;
     const left = new Float32Array(n);
     const right = new Float32Array(n);
-    v.render(left, right, 0, 100, new Float32Array(n));
+    v.render(left, right, 0, 100);
     expect(v.active).toBe(true); // noteOff で止まっていない
-    v.render(left, right, 100, n, new Float32Array(n));
+    v.render(left, right, 100, n);
     expect(v.active).toBe(false);
   });
 
@@ -269,7 +297,7 @@ describe('Voice（音量とピッチベンド）', () => {
       step(v);
       const left = new Float32Array(chunk);
       const right = new Float32Array(chunk);
-      v.render(left, right, 0, chunk, new Float32Array(chunk));
+      v.render(left, right, 0, chunk);
       return left;
     });
   }

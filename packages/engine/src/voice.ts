@@ -1,11 +1,13 @@
 import { ALGORITHMS, type Algorithm } from './algorithms';
 import { Envelope } from './envelope';
+import { Lfo } from './lfo';
 import { Noise } from './noise';
 import { panGains } from './output';
 import {
   AM_DEPTH_DB,
   FB_RAD,
-  KSL_DB_PER_OCT,
+  keyCode,
+  kslAttenuation,
   MOD_INDEX,
   OUTPUT_GAIN,
   SILENT_DB,
@@ -46,11 +48,14 @@ export class Voice {
   private hasPitch = false;
   // ピッチベンド（FM）：全オペレーターの周波数にかける倍率
   private bendRatio = 1;
+  // 音色の vibrato が true のときだけ、オペレーターの vib を効かせる
+  private vibratoOn = false;
 
   // ノイズ部（ドラム）
   private noiseParams: DrumNoise | null = null;
   private readonly noise = new Noise();
   private readonly noiseEnvelope: Envelope;
+  private readonly lfo: Lfo;
   private repeatsLeft = 0;
   private repeatInterval = 0;
   private repeatCounter = 0;
@@ -58,6 +63,7 @@ export class Voice {
   constructor(private readonly sampleRate: number) {
     this.envelopes = [0, 1, 2, 3].map(() => new Envelope(sampleRate));
     this.noiseEnvelope = new Envelope(sampleRate);
+    this.lfo = new Lfo(sampleRate);
   }
 
   /**
@@ -138,13 +144,13 @@ export class Voice {
     return this.noiseEnvelope.phase !== 'off' || this.repeatsLeft > 0;
   }
 
-  /** left/right の [from, to) に足し込む。lfo[s] はサンプル s の LFO 値（−1〜1） */
-  render(left: Float32Array, right: Float32Array, from: number, to: number, lfo: Float32Array): void {
+  /** left/right の [from, to) に足し込む */
+  render(left: Float32Array, right: Float32Array, from: number, to: number): void {
     if (!this.active) return;
     const gl = this.gainLeft;
     const gr = this.gainRight;
     for (let s = from; s < to; s++) {
-      let value = this.alg ? this.sampleFm(lfo[s]!) * this.fmLevel : 0;
+      let value = this.alg ? this.sampleFm() * this.fmLevel : 0;
       if (this.noiseParams) value += this.sampleNoise(this.noiseParams);
       left[s] = left[s]! + value * gl;
       right[s] = right[s]! + value * gr;
@@ -153,26 +159,29 @@ export class Voice {
 
   private startFm(voice: FmVoice, note: number): void {
     this.fm = voice;
+    this.vibratoOn = voice.vibrato === true;
+    this.lfo.setRate(voice.lfo);
+    this.lfo.reset();
     const alg = ALGORITHMS[voice.alg]!;
     this.alg = alg;
-    const octavesAboveC4 = Math.max(0, (note - 60) / 12);
+    const kc = keyCode(note, voice.bo);
     for (let i = 0; i < alg.opCount; i++) {
       const op = voice.ops[i]!;
       this.phase[i] = 0;
       this.feedbackPrev1[i] = 0;
       this.feedbackPrev2[i] = 0;
       this.increment[i] = operatorFrequency(note, voice.bo, op.mul, op.dt) / this.sampleRate;
-      this.staticDb[i] = op.tl * TL_DB_PER_STEP + KSL_DB_PER_OCT[op.ksl]! * octavesAboveC4;
+      this.staticDb[i] = op.tl * TL_DB_PER_STEP + kslAttenuation(op.ksl, note);
       this.feedbackGain[i] = alg.feedback.includes(i) ? FB_RAD[op.fb]! : 0;
       this.tables[i] = WAVE_TABLES[op.wave]!;
-      this.envelopes[i]!.keyOn(op, note);
+      this.envelopes[i]!.keyOn(op, kc);
     }
   }
 
   private keyOnNoise(): void {
     const n = this.noiseParams!;
     // SL に達した後は rr の速さで下がる（ドラムにはキーオフが来ないため）
-    this.noiseEnvelope.keyOn({ ar: n.ar, dr: n.dr, sl: n.sl, sr: n.rr, rr: n.rr, ksr: 0, xof: 0 }, 60);
+    this.noiseEnvelope.keyOn({ ar: n.ar, dr: n.dr, sl: n.sl, sr: n.rr, rr: n.rr, ksr: 0, xof: 0 }, keyCode(60, 0));
   }
 
   private sampleNoise(n: DrumNoise): number {
@@ -188,7 +197,8 @@ export class Voice {
     return this.noise.next() * 10 ** (-db / 20) * n.level * OUTPUT_GAIN;
   }
 
-  private sampleFm(lfo: number): number {
+  private sampleFm(): number {
+    const lfo = this.lfo.next();
     const voice = this.fm!;
     const alg = this.alg!;
     const outputs = this.outputs;
@@ -218,7 +228,7 @@ export class Voice {
       }
 
       let inc = this.increment[i]! * pitchRatio * this.bendRatio;
-      if (op.vib) inc *= 2 ** ((lfo * VIB_DEPTH_CENTS[op.vibDepth]!) / 1200);
+      if (this.vibratoOn && op.vib) inc *= 2 ** ((-lfo * VIB_DEPTH_CENTS[op.vibDepth]!) / 1200);
       this.phase[i] = (this.phase[i]! + inc) % 1;
     }
     let mix = 0;

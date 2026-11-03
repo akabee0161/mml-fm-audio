@@ -91,8 +91,12 @@ try {
     const button = page.locator('#drums .drum').nth(i);
     const name = await button.getAttribute('data-drum');
     await button.click();
-    await page.waitForTimeout(30);
-    const value = await peak();
+    // 減衰の速いドラムは 1 回の測定では隙間に当たりうるので、約 150 ms の間 5 ms ごとに測って最大を取る
+    let value = 0;
+    for (let j = 0; j < 30; j++) {
+      value = Math.max(value, await peak());
+      await page.waitForTimeout(5);
+    }
     check(value > 0.01, `ドラム ${name} が鳴る（最大振幅 ${value.toFixed(3)}）`);
     await waitSilent();
   }
